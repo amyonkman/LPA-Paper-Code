@@ -1,0 +1,795 @@
+---
+title: "K-means Clustering"
+author: "Amanda Yonkman"
+date: "19/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+
+# clearing the environment
+rm(list = ls(all=TRUE))
+
+# loading packages
+library(dplyr)
+library(pheatmap)
+library(readr)
+library(readxl)
+
+# setting the working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data/Completed Files")  
+
+# preparing the data:
+
+## This dataset has already been cleaned. It includes the chemical, WPPSI-III, and demographic data
+all_data <- read_csv("AY_MIREC_Analysis_July22_2020.csv")
+all_data <- filter(all_data, sex2!="NA")
+#View(all_data)
+
+setwd("/home/ayonkman/Desktop/Cleaned Data")  
+imputed_data <- read_csv("AY_MIREC_Analysis_Feb_2021.csv")
+
+## I'll only want the chemical data for the LPA. Filtering out other data, as well as the chemical sums and the extra BDEs I don't want:
+chem_data <- all_data[,c(2:10, 12:19, 23, 24, 26:31, 33, 38)]
+
+# renaming the variables (all chemical variables are in log2 from this point forward, so there's no need to specify):
+
+chem_data <- dplyr::rename(chem_data, Arsenic = log2.arsenic.t1, Cadmium = log2.cadmium.t1, Lead = log2.lead.t1, Manganese = log2.manganese.t1, Mercury = log2.mercury.t1, BHCH = log2.bbhc.t1, DDE = log2.dde.t1, Oxychlor = log2.oxychlor.t1, Transnona = log2.transnona.t1, DEP = log2.dep.t1, DETP = log2.detp.t1, DMDTP = log2.dmdtp.t1, DMP = log2.dmp.t1, DMTP = log2.dmtp.t1, MnBP = log2.mbp.t1, MBzP = log2.mbzp.t1, MCPP = log2.mcpp.t1, MEP = log2.mep.t1, SumDEHP = log2.sum.dehp.t1, PCB118 = log2.pcb118.t1, PCB138 = log2.pcb138.t1, PCB153 = log2.pcb153.t1, PCB170 = log2.pcb170.t1, PCB180 = log2.pcb180.t1, PCB187 = log2.pcb187.t1, BDE47 = log2.bde47.t1, Cotinine = log2.cot.t1)
+
+```
+
+```{r}
+
+# Here are the results of k-means clustering if we set the number for clusters to 5 (as it is for the LPA):
+
+set.seed(314)
+
+clusters5 <- kmeans(chem_data, centers=5, iter.max = 10, nstart=30)
+clusters5
+
+```
+
+```{r}
+
+# I don't know that 5 clusters is optimal. There's not an easy statistic to use to find the right number of clusters. One method that can be used is by comparing the total sum of squares within the clusters. I'm checking 1-30 clusters to see the curve but you'd never actually want 30 clusters. Calculating those here:
+
+ss_within <- rep(0, 30)
+
+for(t in 1:30){
+  ss_within[t] <- (kmeans(as.matrix(chem_data), centers = t, iter.max = 10, nstart=30))$tot.withinss
+}
+
+# and plotting it:
+plot(c(1:30), ss_within)
+
+# Just by eyeballing it, it looks like the "crook of the elbow" is between 5 and 8 clusters. This is not an exact method so I'll try a second one: minimizing the SS within in the cluters but maximizing the SS between them.
+
+ss_within <- ss_between <- ss_ratio <- rep(0,30)
+
+for(u in 1:30){
+  ss_within[u] <- (kmeans(as.matrix(chem_data), centers = u, iter.max = 10, nstart=30))$tot.withinss
+  ss_between[u] <- (kmeans(as.matrix(chem_data), centers = u, iter.max = 10, nstart=30))$betweenss
+  ss_ratio[u] <- ss_between[u]/ss_within[u]
+  }
+
+plot(c(1:30), ss_ratio)
+
+# Still hard to see, but there does seem to be a bit of a hockey stick look between clusters 5 and 6
+
+# However, despite the ambiguity, I think that 5 clusters is a fair number to choose, so I feel comfortable moving forward with that.
+
+```
+
+
+
+```{r}
+
+# To calculate the z-scores, I'll be comparing the means calculated by the k-means clustering with the means/sds from the total population:
+
+z_arsenic <- z_cadmium <- z_lead <- z_manganese <- z_mercury <- z_bbhc <- z_dde <- z_oxychlor <- z_transnona <- z_dep <- z_detp <- z_dmdtp <- z_dmp <- z_dmtp <- z_mbp <- z_mbzp <- z_mcpp <- z_mep <- z_sum_dehp <- z_pcb118 <- z_pcb138 <- z_pcb153 <- z_pcb170 <- z_pcb180 <- z_pcb187 <- z_bde47 <- z_cotinine <- rep(0,5)
+
+for (z in 1:5){
+  z_arsenic[z] <- (clusters5$centers[z,1]-mean(chem_data$Arsenic))/sd(chem_data$Arsenic)
+  z_cadmium[z] <- (clusters5$centers[z,2]-mean(chem_data$Cadmium))/sd(chem_data$Cadmium)
+  z_lead[z] <- (clusters5$centers[z,3]-mean(chem_data$Lead))/sd(chem_data$Lead)
+  z_manganese[z] <- (clusters5$centers[z,4]-mean(chem_data$Manganese))/sd(chem_data$Manganese)
+  z_mercury[z] <- (clusters5$centers[z,5]-mean(chem_data$Mercury))/sd(chem_data$Mercury)
+  z_bbhc[z] <- (clusters5$centers[z,6]-mean(chem_data$BHCH))/sd(chem_data$BHCH)
+  z_dde[z] <- (clusters5$centers[z,7]-mean(chem_data$DDE))/sd(chem_data$DDE)
+  z_oxychlor[z] <- (clusters5$centers[z,8]-mean(chem_data$Oxychlor))/sd(chem_data$Oxychlor)
+  z_transnona[z] <- (clusters5$centers[z,9]-mean(chem_data$Transnona))/sd(chem_data$Transnona)
+  z_dep[z] <- (clusters5$centers[z,10]-mean(chem_data$DEP))/sd(chem_data$DEP)
+  z_detp[z] <- (clusters5$centers[z,11]-mean(chem_data$DETP))/sd(chem_data$DETP)
+  z_dmdtp[z] <- (clusters5$centers[z,12]-mean(chem_data$DMDTP))/sd(chem_data$DMDTP)
+  z_dmp[z] <- (clusters5$centers[z,13]-mean(chem_data$DMP))/sd(chem_data$DMP)
+  z_dmtp[z] <- (clusters5$centers[z,14]-mean(chem_data$DMTP))/sd(chem_data$DMTP)
+  z_mbp[z] <- (clusters5$centers[z,15]-mean(chem_data$MnBP))/sd(chem_data$MnBP)
+  z_mbzp[z] <- (clusters5$centers[z,16]-mean(chem_data$MBzP))/sd(chem_data$MBzP)
+  z_mcpp[z] <- (clusters5$centers[z,17]-mean(chem_data$MCPP))/sd(chem_data$MCPP)
+  z_mep[z] <- (clusters5$centers[z,18]-mean(chem_data$MEP))/sd(chem_data$MEP)
+  z_sum_dehp[z] <- (clusters5$centers[z,19]-mean(chem_data$SumDEHP))/sd(chem_data$SumDEHP)
+  z_pcb118[z] <- (clusters5$centers[z,20]-mean(chem_data$PCB118))/sd(chem_data$PCB118)
+  z_pcb138[z] <- (clusters5$centers[z,21]-mean(chem_data$PCB138))/sd(chem_data$PCB138)
+  z_pcb153[z] <- (clusters5$centers[z,22]-mean(chem_data$PCB153))/sd(chem_data$PCB153)
+  z_pcb170[z] <- (clusters5$centers[z,23]-mean(chem_data$PCB170))/sd(chem_data$PCB170)
+  z_pcb180[z] <- (clusters5$centers[z,24]-mean(chem_data$PCB180))/sd(chem_data$PCB180)
+  z_pcb187[z] <- (clusters5$centers[z,25]-mean(chem_data$PCB187))/sd(chem_data$PCB187)
+  z_bde47[z] <- (clusters5$centers[z,26]-mean(chem_data$BDE47))/sd(chem_data$BDE47)
+  z_cotinine[z] <- (clusters5$centers[z,27]-mean(chem_data$Cotinine))/sd(chem_data$Cotinine)
+}
+
+z_scores <- data.frame(z_arsenic, z_cadmium, z_lead, z_manganese, z_mercury, z_bbhc, z_dde, z_oxychlor, z_transnona, z_dep, z_detp, z_dmdtp, z_dmp, z_dmtp, z_mbp, z_mbzp, z_mcpp, z_mep, z_sum_dehp, z_pcb118, z_pcb138, z_pcb153, z_pcb170, z_pcb180, z_pcb187, z_bde47, z_cotinine)
+
+```
+
+```{r}
+
+# Making the heat map with z-scores:
+
+# getting the colour ready
+breaksList = seq(-3, 3, by=0.1)
+col <- colorRampPalette(c("navy", "blue", "white", "red", "red4"))(length(breaksList))
+
+#labels:
+chemicals <- c("As", "Cd", "Pb", "Mn", "Hg", "B-HCH", "DDE", "Oxy.", "Trans.", "DEP", "DETP", "DMDTP", "DMP", "DMTP", "MnBP", "MBzP", "MCPP", "MEP", "Sum DEHP", "PCB118", "PCB138", "PCB153", "PCB170", "PCB180", "PCB187", "BDE47", "Cot.")
+
+# using pheatmap because it lets me do a legend and play with the labels, which heatmap and heatmap.2 don't let me do:
+pheatmap(t(z_scores), # the t transposes it (switches rows and columns) so that it faces the right way
+        Colv=NA, Rowv=NA, cluster_rows = FALSE, cluster_cols = FALSE, # getting rid of the the dendrogram and the clustering
+        cellwidth = 20, # changing the size of the cells
+        color=col, breaks = breaksList, # colouring the chart
+        labels_row = chemicals, angle_col = 45) # picking the colours
+
+```
+
+
+```{r}
+
+# changing the order to compare with LPA
+
+reorder <- z_scores[c(2,3,5,1,4),]
+
+x_lab <- c("Reference", "Phthalates", "High POPs", "OPPs", "Smoking Chemicals")
+
+k_heat_map <- pheatmap(t(reorder), # the t transposes it (switches rows and columns) so that it faces the right way
+        Colv=NA, Rowv=NA, cluster_rows = FALSE, cluster_cols = FALSE, # getting rid of the the dendrogram and the clustering
+        cellwidth = 20, # changing the size of the cells
+        color=col, breaks = breaksList, # colouring the chart
+        labels_col = x_lab, labels_row = chemicals, angle_col = 45) # picking the colours
+
+```
+
+```{r}
+# exporting
+
+setwd("/home/ayonkman/Desktop/Cleaned Data/Completed Files") 
+
+png(height=450, width=32000, file="k_heat_map.png", type = "cairo")
+
+k_heat_map
+
+dev.off()
+```
+
+```{r}
+# making a final dataset with dummy variables for each cluster
+
+x1 <- ifelse(clusters5$cluster == 1, 1, 0)
+x2 <- ifelse(clusters5$cluster == 2, 1, 0)
+x3 <- ifelse(clusters5$cluster == 3, 1, 0)
+x4 <- ifelse(clusters5$cluster == 4, 1, 0)
+x5 <- ifelse(clusters5$cluster == 5, 1, 0)
+```
+
+```{r}
+final_chem <- data.frame("subject_id" = all_data$subject.id, "cluster" = clusters5$cluster, "high_cluster" = x5, "ref_cluster" = x2, "phthalate_cluster" = x3, "opps_cluster" = x1, "smoking_cluster" = x4, "Arsenic" = all_data$log2.arsenic.t1, "Cadmium" = all_data$log2.cadmium.t1, "Lead" = all_data$log2.lead.t1,"Manganese" = all_data$log2.manganese.t1, "Mercury" = all_data$log2.mercury.t1, "B-HCH" = all_data$log2.bbhc.t1, "DDE" = all_data$log2.dde.t1, "Oxychlor" = all_data$log2.oxychlor.t1, "Transnona" = all_data$log2.transnona.t1, "DEP" = all_data$log2.dep.t1, "DETP" = all_data$log2.detp.t1, "DMDTP" = all_data$log2.dmdtp.t1, "DMP" = all_data$log2.dmp.t1, "DMTP" = all_data$log2.dmtp.t1, "MnBP" = all_data$log2.mbp.t1, "MBzP" = all_data$log2.mbzp.t1, "MCPP" = all_data$log2.mcpp.t1, "MEP" = all_data$log2.mep.t1, "sumDEHPr" = all_data$log2.sum.dehp.t1, "PCB118" = all_data$log2.pcb118.t1, "PCB138" = all_data$log2.pcb138.t1, "PCB153" = all_data$log2.pcb153.t1, "PCB170" = all_data$log2.pcb170.t1, "PCB180" = all_data$log2.pcb180.t1, "PCB187" = all_data$log2.pcb187.t1, "BDE47" = all_data$log2.bde47.t1, "Cotinine" = all_data$log2.cot.t1, "birth_weight" = all_data$birth.wt, "gest_age" = all_data$gest.age, "preterm_birth" = all_data$preterm2, "lbw" = all_data$lbw2, "lga" = all_data$lga2, "child_sex" = all_data$sex2, "small_for_ga" = all_data$sga2, "alc" = imputed_data$alc2, "city" = all_data$city10, "mom_education" = imputed_data$edu4, "household_income" = imputed_data$income4, "married" = all_data$married2, "maternal_age" = all_data$mom.age3, "parity" = all_data$parity4, "race_aboriginal" = all_data$race.aboriginal2, "race_asian2" = all_data$race.asian2, "race_black2" = all_data$race.black2, "race_latin2" = all_data$race.latin2, "race_other2" = all_data$race.other2, "race_white2" = all_data$race.white2, "smoker" = all_data$smoker2, "wppsi_1" = all_data$wppsi.1, "wppsi_2" = all_data$wppsi.2, "wppsi_3" = all_data$wppsi.3, "wppsi_4" = all_data$wppsi.4, "wppsi_5" = all_data$wppsi.5, "viq" = all_data$viq, "piq" = all_data$piq, "fsiq" = all_data$fsiq)
+final_chem
+```
+
+```{r}
+
+# demographics of each cluster
+
+# making demographic dummy variables (child sex, maternal age, maternal race, maternal education, marital status, household income, parity, prenatal smoking, and prenatal alcohol):
+
+final_chem <- mutate(final_chem, sex_male = ifelse(child_sex == 0, 1, 0), sex_female = ifelse(child_sex == 1, 1, 0), age_nineteen = ifelse(maternal_age == 1, 1, 0), age_thirty = ifelse(maternal_age == 2, 1, 0), age_thirtyfive = ifelse(maternal_age == 3, 1, 0), maternal_race = ifelse(race_aboriginal == 1 | race_asian2 == 1 | race_black2 == 1 |race_latin2 == 1 | race_other2 == 1, 1, 0 ), edu_hs = ifelse(mom_education == 1, 1, 0), edu_college = ifelse(mom_education == 2, 1, 0), edu_undergrad = ifelse(mom_education == 3, 1, 0), edu_grad = ifelse(mom_education == 4, 1, 0), income_under_forty = ifelse(household_income == 1, 1, 0), income_forty = ifelse(household_income == 2, 1, 0), income_eighty = ifelse(household_income == 3, 1, 0), income_hundred = ifelse(household_income == 4, 1, 0), parity_zero = ifelse(parity == 1, 1, 0), parity_one = ifelse(parity == 2, 1, 0), parity_two = ifelse(parity == 3, 1, 0), parity_three_plus = ifelse(parity == 4, 1, 0), non_smoker = ifelse(smoker == 0, 1, 0), smoker = ifelse(smoker == 1, 1, 0), no_prenatal_alc = ifelse(alc == 0, 1, 0), prenatal_alc = ifelse(alc == 1, 1, 0))
+
+clust_opps <- filter(final_chem, clusters5$cluster == 1)
+clust_ref <- filter(final_chem, clusters5$cluster == 2)
+clust_phthalate <- filter(final_chem, clusters5$cluster == 3)
+clust_smoking <- filter(final_chem, clusters5$cluster == 4)
+clust_high <- filter(final_chem, clusters5$cluster == 5)
+
+#final_chem
+
+# OPP cluster:
+
+# child sex
+sex_na <- filter(clust_opps, !is.na(child_sex)) # removing the NA values
+percent_female1 <- mean(sex_na$child_sex) # weighted mean likelihood of being female if you fall into this cluster
+percent_male1 <- 1 - percent_female1 # weighted mean likelihood of being male if you fall into this cluster
+
+# maternal age
+age_na <- filter(clust_opps, !is.na(maternal_age))
+percent_age_nineteen1 <-mean(age_na$age_nineteen)
+percent_age_thirty1 <-mean(age_na$age_thirty)
+percent_age_thirtyfive1 <-mean(age_na$age_thirtyfive)
+
+# maternal race:
+race_na <- filter(clust_opps, !is.na(maternal_race))
+percent_nonwhite1 <- mean(race_na$maternal_race)
+percent_white1 <- 1 - percent_nonwhite1
+
+# maternal education
+edu_na <- filter(clust_opps, !is.na(mom_education))
+percent_hs1 <- mean(edu_na$edu_hs)
+percent_college1 <- mean(edu_na$edu_college)
+percent_undergrad1 <- mean(edu_na$edu_undergrad)
+percent_grad1 <- mean(edu_na$edu_grad)
+
+# marital status
+marital_na <- filter(clust_opps, !is.na(married))
+percent_unmarried1 <- mean(marital_na$married)
+percent_married1 <- 1 - percent_unmarried1
+
+# household income
+income_na <- filter(clust_opps, !is.na(household_income))
+percent_under_forty1 <- mean(income_na$income_under_forty)
+percent_forty1 <- mean(income_na$income_forty)
+percent_eighty1 <- mean(income_na$income_eighty)
+percent_hundred1 <- mean(income_na$income_hundred)
+
+# parity
+parity_na <- filter(clust_opps, !is.na(parity))
+percent_parity_zero1 <- mean(parity_na$parity_zero)
+percent_parity_one1 <- mean(parity_na$parity_one)
+percent_parity_two1 <- mean(parity_na$parity_two)
+percent_parity_three_plus1 <- mean(parity_na$parity_three_plus)
+
+# prenatal smoking
+smoker_na <- filter(clust_opps, !is.na(smoker))
+percent_smoker1 <- mean(smoker_na$smoker)
+percent_nonsmoker1 <- 1 - percent_smoker1
+
+# prenatal alcohol
+alc_na <- filter(clust_opps, !is.na(alc))
+percent_alc1 <- mean(alc_na$alc)
+percent_nonalc1 <- 1 - percent_alc1
+
+opps_cluster_demog <- c(percent_male1, percent_female1, percent_age_nineteen1, percent_age_thirty1, percent_age_thirtyfive1, percent_white1, percent_nonwhite1, percent_hs1, percent_college1, percent_undergrad1, percent_grad1, percent_married1, percent_unmarried1, percent_under_forty1, percent_forty1, percent_eighty1, percent_hundred1, percent_parity_zero1, percent_parity_one1, percent_parity_two1, percent_parity_three_plus1, percent_nonsmoker1, percent_smoker1, percent_nonalc1, percent_alc1)
+
+# ref cluster
+
+# child sex
+sex_na <- filter(clust_ref, !is.na(child_sex))
+percent_female2 <- mean(sex_na$child_sex)
+percent_male2 <- 1 - percent_female2
+
+# maternal age
+age_na <- filter(clust_ref, !is.na(maternal_age))
+percent_age_nineteen2 <-mean(age_na$age_nineteen)
+percent_age_thirty2 <-mean(age_na$age_thirty)
+percent_age_thirtyfive2 <-mean(age_na$age_thirtyfive)
+
+# maternal race:
+race_na <- filter(clust_ref, !is.na(maternal_race))
+percent_nonwhite2 <- mean(race_na$maternal_race)
+percent_white2 <- 1 - percent_nonwhite2
+
+# maternal education
+edu_na <- filter(clust_ref, !is.na(mom_education))
+percent_hs2 <- mean(edu_na$edu_hs)
+percent_college2 <- mean(edu_na$edu_college)
+percent_undergrad2 <- mean(edu_na$edu_undergrad)
+percent_grad2 <- mean(edu_na$edu_grad)
+
+# marital status
+marital_na <- filter(clust_ref, !is.na(married))
+percent_unmarried2 <- mean(marital_na$married)
+percent_married2 <- 1 - percent_unmarried2
+
+# household income
+income_na <- filter(clust_ref, !is.na(household_income))
+percent_under_forty2 <- mean(income_na$income_under_forty)
+percent_forty2 <- mean(income_na$income_forty)
+percent_eighty2 <- mean(income_na$income_eighty)
+percent_hundred2 <- mean(income_na$income_hundred)
+
+# parity
+parity_na <- filter(clust_ref, !is.na(parity))
+percent_parity_zero2 <- mean(parity_na$parity_zero)
+percent_parity_one2 <- mean(parity_na$parity_one)
+percent_parity_two2 <- mean(parity_na$parity_two)
+percent_parity_three_plus2 <- mean(parity_na$parity_three_plus)
+
+# prenatal smoking
+smoker_na <- filter(clust_ref, !is.na(smoker))
+percent_smoker2 <- mean(smoker_na$smoker)
+percent_nonsmoker2 <- 1 - percent_smoker2
+
+# prenatal alcohol
+alc_na <- filter(clust_ref, !is.na(alc))
+percent_alc2 <- mean(alc_na$alc)
+percent_nonalc2 <- 1 - percent_alc2
+
+ref_cluster_demog <- c(percent_male2, percent_female2, percent_age_nineteen2, percent_age_thirty2, percent_age_thirtyfive2, percent_white2, percent_nonwhite2, percent_hs2, percent_college2, percent_undergrad2, percent_grad2, percent_married2, percent_unmarried2, percent_under_forty2, percent_forty2, percent_eighty2, percent_hundred2, percent_parity_zero2, percent_parity_one2, percent_parity_two2, percent_parity_three_plus2, percent_nonsmoker2, percent_smoker2, percent_nonalc2, percent_alc2)
+
+# Phthalate cluster:
+
+# child sex
+sex_na <- filter(clust_phthalate, !is.na(child_sex))
+percent_female3 <- mean(sex_na$child_sex)
+percent_male3 <- 1 - percent_female3
+
+# maternal age
+age_na <- filter(clust_phthalate, !is.na(maternal_age))
+percent_age_nineteen3 <-mean(age_na$age_nineteen)
+percent_age_thirty3 <-mean(age_na$age_thirty)
+percent_age_thirtyfive3 <-mean(age_na$age_thirtyfive)
+
+# maternal race:
+race_na <- filter(clust_phthalate, !is.na(maternal_race))
+percent_nonwhite3 <- mean(race_na$maternal_race)
+percent_white3 <- 1 - percent_nonwhite3
+
+# maternal education
+edu_na <- filter(clust_phthalate, !is.na(mom_education))
+percent_hs3 <- mean(edu_na$edu_hs)
+percent_college3 <- mean(edu_na$edu_college)
+percent_undergrad3 <- mean(edu_na$edu_undergrad)
+percent_grad3 <- mean(edu_na$edu_grad)
+
+# marital status
+marital_na <- filter(clust_phthalate, !is.na(married))
+percent_unmarried3 <- mean(marital_na$married)
+percent_married3 <- 1 - percent_unmarried3
+
+# household income
+income_na <- filter(clust_phthalate, !is.na(household_income))
+percent_under_forty3 <- mean(income_na$income_under_forty)
+percent_forty3 <- mean(income_na$income_forty)
+percent_eighty3 <- mean(income_na$income_eighty)
+percent_hundred3 <- mean(income_na$income_hundred)
+
+# parity
+parity_na <- filter(clust_phthalate, !is.na(parity))
+percent_parity_zero3 <- mean(parity_na$parity_zero)
+percent_parity_one3 <- mean(parity_na$parity_one)
+percent_parity_two3 <- mean(parity_na$parity_two)
+percent_parity_three_plus3 <- mean(parity_na$parity_three_plus)
+
+# prenatal smoking
+smoker_na <- filter(clust_phthalate, !is.na(smoker))
+percent_smoker3 <- mean(smoker_na$smoker)
+percent_nonsmoker3 <- 1 - percent_smoker3
+
+# prenatal alcohol
+alc_na <- filter(clust_phthalate, !is.na(alc))
+percent_alc3 <- mean(alc_na$alc)
+percent_nonalc3 <- 1 - percent_alc3
+
+phthalate_cluster_demog <- c(percent_male3, percent_female3, percent_age_nineteen3, percent_age_thirty3, percent_age_thirtyfive3, percent_white3, percent_nonwhite3, percent_hs3, percent_college3, percent_undergrad3, percent_grad3, percent_married3, percent_unmarried3, percent_under_forty3, percent_forty3, percent_eighty3, percent_hundred3, percent_parity_zero3, percent_parity_one3, percent_parity_two3, percent_parity_three_plus3, percent_nonsmoker3, percent_smoker3, percent_nonalc3, percent_alc3)
+
+# Smoking cluster:
+
+# child sex
+sex_na <- filter(clust_smoking, !is.na(child_sex))
+percent_female4 <- mean(sex_na$child_sex)
+percent_male4 <- 1 - percent_female4
+
+# maternal age
+age_na <- filter(clust_smoking, !is.na(maternal_age))
+percent_age_nineteen4 <-mean(age_na$age_nineteen)
+percent_age_thirty4 <-mean(age_na$age_thirty)
+percent_age_thirtyfive4 <-mean(age_na$age_thirtyfive)
+
+# maternal race:
+race_na <- filter(clust_smoking, !is.na(maternal_race))
+percent_nonwhite4 <- mean(race_na$maternal_race)
+percent_white4 <- 1 - percent_nonwhite4
+
+# maternal education
+edu_na <- filter(clust_smoking, !is.na(mom_education))
+percent_hs4 <- mean(edu_na$edu_hs)
+percent_college4 <- mean(edu_na$edu_college)
+percent_undergrad4 <- mean(edu_na$edu_undergrad)
+percent_grad4 <- mean(edu_na$edu_grad)
+
+# marital status
+marital_na <- filter(clust_smoking, !is.na(married))
+percent_unmarried4 <- mean(marital_na$married)
+percent_married4 <- 1 - percent_unmarried4
+
+# household income
+income_na <- filter(clust_smoking, !is.na(household_income))
+percent_under_forty4 <- mean(income_na$income_under_forty)
+percent_forty4 <- mean(income_na$income_forty)
+percent_eighty4 <- mean(income_na$income_eighty)
+percent_hundred4 <- mean(income_na$income_hundred)
+
+# parity
+parity_na <- filter(clust_smoking, !is.na(parity))
+percent_parity_zero4 <- mean(parity_na$parity_zero)
+percent_parity_one4 <- mean(parity_na$parity_one)
+percent_parity_two4 <- mean(parity_na$parity_two)
+percent_parity_three_plus4 <- mean(parity_na$parity_three_plus)
+
+# prenatal smoking
+smoker_na <- filter(clust_smoking, !is.na(smoker))
+percent_smoker4 <- mean(smoker_na$smoker)
+percent_nonsmoker4 <- 1 - percent_smoker4
+
+# prenatal alcohol
+alc_na <- filter(clust_smoking, !is.na(alc))
+percent_alc4 <- mean(alc_na$alc)
+percent_nonalc4 <- 1 - percent_alc4
+
+smoking_cluster_demog <- c(percent_male4, percent_female4, percent_age_nineteen4, percent_age_thirty4, percent_age_thirtyfive4, percent_white4, percent_nonwhite4, percent_hs4, percent_college4, percent_undergrad4, percent_grad4, percent_married4, percent_unmarried4, percent_under_forty4, percent_forty4, percent_eighty4, percent_hundred4, percent_parity_zero4, percent_parity_one4, percent_parity_two4, percent_parity_three_plus4, percent_nonsmoker4, percent_smoker4, percent_nonalc4, percent_alc4)
+
+# High Cluster:
+
+# child sex
+sex_na <- filter(clust_high, !is.na(child_sex))
+percent_female5 <- mean(sex_na$child_sex)
+percent_male5 <- 1 - percent_female5
+
+# maternal age
+age_na <- filter(clust_high, !is.na(maternal_age))
+percent_age_nineteen5 <-mean(age_na$age_nineteen)
+percent_age_thirty5 <-mean(age_na$age_thirty)
+percent_age_thirtyfive5 <-mean(age_na$age_thirtyfive)
+
+# maternal race:
+race_na <- filter(clust_high, !is.na(maternal_race))
+percent_nonwhite5 <- mean(race_na$maternal_race)
+percent_white5 <- 1 - percent_nonwhite5
+
+# maternal education
+edu_na <- filter(clust_high, !is.na(mom_education))
+percent_hs5 <- mean(edu_na$edu_hs)
+percent_college5 <- mean(edu_na$edu_college)
+percent_undergrad5 <- mean(edu_na$edu_undergrad)
+percent_grad5 <- mean(edu_na$edu_grad)
+
+# marital status
+marital_na <- filter(clust_high, !is.na(married))
+percent_unmarried5 <- mean(marital_na$married)
+percent_married5 <- 1 - percent_unmarried5
+
+# household income
+income_na <- filter(clust_high, !is.na(household_income))
+percent_under_forty5 <- mean(income_na$income_under_forty)
+percent_forty5 <- mean(income_na$income_forty)
+percent_eighty5 <- mean(income_na$income_eighty)
+percent_hundred5 <- mean(income_na$income_hundred)
+
+# parity
+parity_na <- filter(clust_high, !is.na(parity))
+percent_parity_zero5 <- mean(parity_na$parity_zero)
+percent_parity_one5 <- mean(parity_na$parity_one)
+percent_parity_two5 <- mean(parity_na$parity_two)
+percent_parity_three_plus5 <- mean(parity_na$parity_three_plus)
+
+# prenatal smoking
+smoker_na <- filter(clust_high, !is.na(smoker))
+percent_smoker5 <- mean(smoker_na$smoker)
+percent_nonsmoker5 <- 1 - percent_smoker5
+
+# prenatal alcohol
+alc_na <- filter(clust_high, !is.na(alc))
+percent_alc5 <- mean(alc_na$alc)
+percent_nonalc5 <- 1 - percent_alc5
+
+high_cluster_demog <- c(percent_male5, percent_female5, percent_age_nineteen5, percent_age_thirty5, percent_age_thirtyfive5, percent_white5, percent_nonwhite5, percent_hs5, percent_college5, percent_undergrad5, percent_grad5, percent_married5, percent_unmarried5, percent_under_forty5, percent_forty5, percent_eighty5, percent_hundred5, percent_parity_zero5, percent_parity_one5, percent_parity_two5, percent_parity_three_plus5, percent_nonsmoker5, percent_smoker5, percent_nonalc5, percent_alc5)
+
+nrow(clust_ref)
+nrow(clust_phthalate)
+nrow(clust_high)
+nrow(clust_opps)
+nrow(clust_smoking)
+```
+
+```{r Total pop demographics}
+
+# child sex
+sex_na <- filter(final_chem, !is.na(child_sex))
+percent_female <- mean(sex_na$child_sex)
+percent_male <- 1 - percent_female
+
+# maternal age
+age_na <- filter(final_chem, !is.na(maternal_age))
+percent_age_nineteen <- mean(age_na$age_nineteen)
+percent_age_thirty <- mean(age_na$age_thirty)
+percent_age_thirtyfive <- mean(age_na$age_thirtyfive)
+
+# maternal race:
+race_na <- filter(final_chem, !is.na(maternal_race))
+percent_nonwhite <- mean(race_na$maternal_race)
+percent_white <- 1 - percent_nonwhite
+
+# maternal education
+edu_na <- filter(final_chem, !is.na(mom_education))
+percent_hs <- mean(edu_na$edu_hs)
+percent_college <- mean(edu_na$edu_college)
+percent_undergrad <- mean(edu_na$edu_undergrad)
+percent_grad <- mean(edu_na$edu_grad)
+
+# marital status
+marital_na <- filter(final_chem, !is.na(married))
+percent_unmarried <- mean(marital_na$married)
+percent_married <- 1 - percent_unmarried
+
+# household income
+income_na <- filter(final_chem, !is.na(household_income))
+percent_under_forty <- mean(income_na$income_under_forty)
+percent_forty <- mean(income_na$income_forty)
+percent_eighty <- mean(income_na$income_eighty)
+percent_hundred <- mean(income_na$income_hundred)
+
+# parity
+parity_na <- filter(final_chem, !is.na(parity))
+percent_parity_zero <- mean(parity_na$parity_zero)
+percent_parity_one <- mean(parity_na$parity_one)
+percent_parity_two <- mean(parity_na$parity_two)
+percent_parity_three_plus <- mean(parity_na$parity_three_plus)
+
+# prenatal smoking
+smoker_na <- filter(final_chem, !is.na(smoker))
+percent_smoker <- mean(smoker_na$smoker)
+percent_nonsmoker <- 1 - percent_smoker
+
+# prenatal alcohol
+alc_na <- filter(final_chem, !is.na(alc))
+percent_alc <- mean(alc_na$alc)
+percent_nonalc <- 1 - percent_alc
+
+total_demog <- c(percent_male, percent_female, percent_age_nineteen, percent_age_thirty, percent_age_thirtyfive, percent_white, percent_nonwhite, percent_hs, percent_college, percent_undergrad, percent_grad, percent_married, percent_unmarried, percent_under_forty, percent_forty, percent_eighty, percent_hundred, percent_parity_zero, percent_parity_one, percent_parity_two, percent_parity_three_plus, percent_nonsmoker, percent_smoker, percent_nonalc, percent_alc)
+
+```
+
+```{r Compiling cluster demographics}
+# putting them all together:
+
+demographics <- c("Male", "Female", "19-30", "30-35", "35+", "White", "Other", "Highschool", "College", "Undergrad", "Grad", "Married", "Unmarried", "< 40 000", "40 000 - 80 000", "80 000 - 100 000", "> 100 000", "Zero", "One", "Two", "Three or More", "No", "Yes", "No", "Yes")
+
+cluster_demographics <- data.frame("Demographic" = demographics, "Total" = total_demog, "Ref" = ref_cluster_demog, "High Level" =  high_cluster_demog, "Phthalates" = phthalate_cluster_demog, "High OPPs" = opps_cluster_demog, "Smoking Chemicals" = smoking_cluster_demog)
+cluster_demographics
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+
+# writing the table:
+write.table(cluster_demographics, file="/home/ayonkman/Desktop/Cleaned Data/K-means Clustering Demographics", sep=",", row.names = FALSE)
+
+```
+
+```{r}
+
+# unadjusted regression analysis
+
+# VIQ 
+klm_unadj_all_viq <- lm(final_chem$viq ~ final_chem$phthalate_cluster + final_chem$high_cluster + final_chem$opps_cluster + final_chem$smoking_cluster + final_chem$ref_cluster)
+summary(klm_unadj_all_viq)
+klm_unadj_all_viq$coefficients
+
+# PIQ 
+klm_unadj_all_piq <- lm(final_chem$piq ~ final_chem$phthalate_cluster + final_chem$high_cluster + final_chem$opps_cluster + final_chem$smoking_cluster + final_chem$ref_cluster)
+summary(klm_unadj_all_piq)
+
+# FSIQ 
+klm_unadj_all_fsiq <- lm(final_chem$fsiq ~ final_chem$phthalate_cluster + final_chem$high_cluster + final_chem$opps_cluster + final_chem$smoking_cluster + final_chem$ref_cluster)
+summary(klm_unadj_all_fsiq)
+
+```
+
+```{r}
+
+# adjusted regression analysis
+
+# VIQ 
+klm_adj_all_viq <- lm(final_chem$viq ~ final_chem$phthalate_cluster + final_chem$high_cluster + final_chem$opps_cluster + final_chem$smoking_cluster + final_chem$ref_cluster + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$race_other2 + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$prenatal_alc)
+summary(klm_adj_all_viq)
+klm_adj_all_viq$coefficients
+
+# PIQ 
+klm_adj_all_piq <- lm(final_chem$piq ~ final_chem$phthalate_cluster + final_chem$high_cluster + final_chem$opps_cluster + final_chem$smoking_cluster + final_chem$ref_cluster + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$race_other2 + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$prenatal_alc)
+summary(klm_adj_all_piq)
+
+# FSIQ 
+klm_adj_all_fsiq <- lm(final_chem$fsiq ~ final_chem$phthalate_cluster + final_chem$high_cluster + final_chem$opps_cluster + final_chem$smoking_cluster + final_chem$ref_cluster + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$race_other2 + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$prenatal_alc)
+summary(klm_adj_all_fsiq)
+
+```
+
+```{r adjusted table for all children}
+
+kcoef_adj_all_viq <- as.matrix(klm_adj_all_viq$coefficients[c(1:6)])
+klower_conf_adj_all_viq <- (as.matrix(confint(klm_adj_all_viq)))[c(1:6),1]
+kupper_conf_adj_all_viq <- (as.matrix(confint(klm_adj_all_viq)))[c(1:6),2]
+
+kcoef_adj_all_piq <- as.matrix(klm_adj_all_piq$coefficients[c(1:6)])
+klower_conf_adj_all_piq <- (as.matrix(confint(klm_adj_all_piq)))[c(1:6),1]
+kupper_conf_adj_all_piq <- (as.matrix(confint(klm_adj_all_piq)))[c(1:6),2]
+
+
+kcoef_adj_all_fsiq <- as.matrix(klm_adj_all_fsiq$coefficients[c(1:6)])
+klower_conf_adj_all_fsiq <- (as.matrix(confint(klm_adj_all_fsiq)))[c(1:6),1]
+kupper_conf_adj_all_fsiq <- (as.matrix(confint(klm_adj_all_fsiq)))[c(1:6),2]
+
+clusters <- c("Intercept", "Phthalates Level", "High Level", "High OPPs", "Smoking Chemicals", "Ref")
+
+klm_adj_all_table <- data.frame("Cluster" = clusters, "VIQ" = kcoef_adj_all_viq, "VIQ Lower" = klower_conf_adj_all_viq, "VIQ Upper" = kupper_conf_adj_all_viq, "PIQ" = kcoef_adj_all_piq, "PIQ Lower" = klower_conf_adj_all_piq, "PIQ Upper" = kupper_conf_adj_all_piq, "FSIQ" = kcoef_adj_all_fsiq, "FSIQ Lower" = klower_conf_adj_all_fsiq, "FSIQ Upper" = kupper_conf_adj_all_fsiq)
+klm_adj_all_table
+
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+
+# writing the table:
+write.table(klm_adj_all_table, file="/home/ayonkman/Desktop/Cleaned Data/K-means Clustering Adjusted Table All Children", sep=",", row.names = FALSE)
+
+```
+
+```{r}
+
+# next I'll stratify by sex
+
+final_boys <- filter(final_chem, child_sex == 0)
+final_girls <- filter(final_chem, child_sex == 1)
+
+```
+
+
+```{r}
+# unadjusted regression analysis - boys
+
+# VIQ 
+klm_unadj_boys_viq <- lm(final_boys$viq ~ final_boys$phthalate_cluster + final_boys$high_cluster + final_boys$opps_cluster + final_boys$smoking_cluster + final_boys$ref_cluster)
+summary(klm_unadj_boys_viq)
+klm_unadj_boys_viq$coefficients
+
+# PIQ 
+klm_unadj_boys_piq <- lm(final_boys$piq ~ final_boys$phthalate_cluster + final_boys$high_cluster + final_boys$opps_cluster + final_boys$smoking_cluster + final_boys$ref_cluster)
+summary(klm_unadj_boys_piq)
+
+# FSIQ 
+klm_unadj_boys_fsiq <- lm(final_boys$fsiq ~ final_boys$phthalate_cluster + final_boys$high_cluster + final_boys$opps_cluster + final_boys$smoking_cluster + final_boys$ref_cluster)
+summary(klm_unadj_boys_fsiq)
+
+```
+
+```{r}
+
+# adjusted regression analysis - boys
+
+# VIQ 
+klm_adj_boys_viq <- lm(final_boys$viq ~ final_boys$phthalate_cluster + final_boys$high_cluster + final_boys$opps_cluster + final_boys$smoking_cluster + final_boys$ref_cluster + final_boys$age_thirty + final_boys$age_thirtyfive + final_boys$race_other2 + final_boys$edu_college + final_boys$edu_undergrad + final_boys$edu_grad + final_boys$married + final_boys$income_forty + final_boys$income_eighty + final_boys$income_hundred + final_boys$parity_one + final_boys$parity_two + final_boys$parity_three_plus + final_boys$prenatal_alc)
+summary(klm_adj_boys_viq)
+klm_unadj_boys_viq$coefficients
+
+# PIQ 
+klm_adj_boys_piq <- lm(final_boys$piq ~ final_boys$phthalate_cluster + final_boys$high_cluster + final_boys$opps_cluster + final_boys$smoking_cluster + final_boys$ref_cluster + final_boys$age_thirty + final_boys$age_thirtyfive + final_boys$race_other2 + final_boys$edu_college + final_boys$edu_undergrad + final_boys$edu_grad + final_boys$married + final_boys$income_forty + final_boys$income_eighty + final_boys$income_hundred + final_boys$parity_one + final_boys$parity_two + final_boys$parity_three_plus + final_boys$prenatal_alc)
+summary(klm_adj_boys_piq)
+
+# FSIQ 
+klm_adj_boys_fsiq <- lm(final_boys$fsiq ~ final_boys$phthalate_cluster + final_boys$high_cluster + final_boys$opps_cluster + final_boys$smoking_cluster + final_boys$ref_cluster + final_boys$age_thirty + final_boys$age_thirtyfive + final_boys$race_other2 + final_boys$edu_college + final_boys$edu_undergrad + final_boys$edu_grad + final_boys$married + final_boys$income_forty + final_boys$income_eighty + final_boys$income_hundred + final_boys$parity_one + final_boys$parity_two + final_boys$parity_three_plus + final_boys$prenatal_alc)
+summary(klm_adj_boys_fsiq)
+
+```
+
+```{r adjusted table for boys}
+
+kcoef_adj_boys_viq <- as.matrix(klm_adj_boys_viq$coefficients[c(1:6)])
+klower_conf_adj_boys_viq <- (as.matrix(confint(klm_adj_boys_viq)))[c(1:6),1]
+kupper_conf_adj_boys_viq <- (as.matrix(confint(klm_adj_boys_viq)))[c(1:6),2]
+
+kcoef_adj_boys_piq <- as.matrix(klm_adj_boys_piq$coefficients[c(1:6)])
+klower_conf_adj_boys_piq <- (as.matrix(confint(klm_adj_boys_piq)))[c(1:6),1]
+kupper_conf_adj_boys_piq <- (as.matrix(confint(klm_adj_boys_piq)))[c(1:6),2]
+
+
+kcoef_adj_boys_fsiq <- as.matrix(klm_adj_boys_fsiq$coefficients[c(1:6)])
+klower_conf_adj_boys_fsiq <- (as.matrix(confint(klm_adj_boys_fsiq)))[c(1:6),1]
+kupper_conf_adj_boys_fsiq <- (as.matrix(confint(klm_adj_boys_fsiq)))[c(1:6),2]
+
+klm_adj_boys_table <- data.frame("Cluster" = clusters, "VIQ" = kcoef_adj_boys_viq, "VIQ Lower" = klower_conf_adj_boys_viq, "VIQ Upper" = kupper_conf_adj_boys_viq, "PIQ" = kcoef_adj_boys_piq, "PIQ Lower" = klower_conf_adj_boys_piq, "PIQ Upper" = kupper_conf_adj_boys_piq, "FSIQ" = kcoef_adj_boys_fsiq, "FSIQ Lower" = klower_conf_adj_boys_fsiq, "FSIQ Upper" = kupper_conf_adj_boys_fsiq)
+klm_adj_boys_table
+
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+
+# writing the table:
+write.table(klm_adj_boys_table, file="/home/ayonkman/Desktop/Cleaned Data/K-means Clustering Adjusted Table - Boys", sep=",", row.names = FALSE)
+
+```
+
+```{r}
+
+# unadjusted regression analysis - girls
+
+# VIQ 
+klm_unadj_girls_viq <- lm(final_girls$viq ~ final_girls$phthalate_cluster + final_girls$high_cluster + final_girls$opps_cluster + final_girls$smoking_cluster + final_girls$ref_cluster)
+summary(klm_unadj_girls_viq)
+klm_unadj_girls_viq$coefficients
+
+# PIQ 
+klm_unadj_girls_piq <- lm(final_girls$piq ~ final_girls$phthalate_cluster + final_girls$high_cluster + final_girls$opps_cluster + final_girls$smoking_cluster + final_girls$ref_cluster)
+summary(klm_unadj_girls_piq)
+
+# FSIQ 
+klm_unadj_girls_fsiq <- lm(final_girls$fsiq ~ final_girls$phthalate_cluster + final_girls$high_cluster + final_girls$opps_cluster + final_girls$smoking_cluster + final_girls$ref_cluster)
+summary(klm_unadj_girls_fsiq)
+
+```
+
+```{r}
+
+# adjusted regression analysis - girls
+
+# VIQ 
+klm_adj_girls_viq <- lm(final_girls$viq ~ final_girls$phthalate_cluster + final_girls$high_cluster + final_girls$opps_cluster + final_girls$smoking_cluster + final_girls$ref_cluster + final_girls$age_thirty + final_girls$age_thirtyfive + final_girls$race_other2 + final_girls$edu_college + final_girls$edu_undergrad + final_girls$edu_grad + final_girls$married + final_girls$income_forty + final_girls$income_eighty + final_girls$income_hundred + final_girls$parity_one + final_girls$parity_two + final_girls$parity_three_plus + final_girls$prenatal_alc)
+summary(klm_adj_girls_viq)
+klm_unadj_girls_viq$coefficients
+
+# PIQ 
+klm_adj_girls_piq <- lm(final_girls$piq ~ final_girls$phthalate_cluster + final_girls$high_cluster + final_girls$opps_cluster + final_girls$smoking_cluster + final_girls$ref_cluster + final_girls$age_thirty + final_girls$age_thirtyfive + final_girls$race_other2 + final_girls$edu_college + final_girls$edu_undergrad + final_girls$edu_grad + final_girls$married + final_girls$income_forty + final_girls$income_eighty + final_girls$income_hundred + final_girls$parity_one + final_girls$parity_two + final_girls$parity_three_plus + final_girls$prenatal_alc)
+summary(klm_adj_girls_piq)
+
+# FSIQ 
+klm_adj_girls_fsiq <- lm(final_girls$fsiq ~ final_girls$phthalate_cluster + final_girls$high_cluster + final_girls$opps_cluster + final_girls$smoking_cluster + final_girls$ref_cluster + final_girls$age_thirty + final_girls$age_thirtyfive + final_girls$race_other2 + final_girls$edu_college + final_girls$edu_undergrad + final_girls$edu_grad + final_girls$married + final_girls$income_forty + final_girls$income_eighty + final_girls$income_hundred + final_girls$parity_one + final_girls$parity_two + final_girls$parity_three_plus + final_girls$prenatal_alc)
+summary(klm_adj_girls_fsiq)
+
+```
+
+```{r adjusted table for girls}
+
+kcoef_adj_girls_viq <- as.matrix(klm_adj_girls_viq$coefficients[c(1:6)])
+klower_conf_adj_girls_viq <- (as.matrix(confint(klm_adj_girls_viq)))[c(1:6),1]
+kupper_conf_adj_girls_viq <- (as.matrix(confint(klm_adj_girls_viq)))[c(1:6),2]
+
+kcoef_adj_girls_piq <- as.matrix(klm_adj_girls_piq$coefficients[c(1:6)])
+klower_conf_adj_girls_piq <- (as.matrix(confint(klm_adj_girls_piq)))[c(1:6),1]
+kupper_conf_adj_girls_piq <- (as.matrix(confint(klm_adj_girls_piq)))[c(1:6),2]
+
+
+kcoef_adj_girls_fsiq <- as.matrix(klm_adj_all_fsiq$coefficients[c(1:6)])
+klower_conf_adj_girls_fsiq <- (as.matrix(confint(klm_adj_girls_fsiq)))[c(1:6),1]
+kupper_conf_adj_girls_fsiq <- (as.matrix(confint(klm_adj_girls_fsiq)))[c(1:6),2]
+
+klm_adj_girls_table <- data.frame("Cluster" = clusters, "VIQ" = kcoef_adj_girls_viq, "VIQ Lower" = klower_conf_adj_girls_viq, "VIQ Upper" = kupper_conf_adj_girls_viq, "PIQ" = kcoef_adj_girls_piq, "PIQ Lower" = klower_conf_adj_girls_piq, "PIQ Upper" = kupper_conf_adj_girls_piq, "FSIQ" = kcoef_adj_girls_fsiq, "FSIQ Lower" = klower_conf_adj_girls_fsiq, "FSIQ Upper" = kupper_conf_adj_girls_fsiq)
+klm_adj_girls_table
+
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+
+# writing the table:
+write.table(klm_adj_girls_table, file="/home/ayonkman/Desktop/Cleaned Data/K-means Clustering Adjusted Table - Girls", sep=",", row.names = FALSE)
+
+```
+
+```{r}
+# finding sex interaction terms
+
+# creating interaction terms - multiplying sex variable times posterior probabilties
+
+final_chem <- mutate(final_chem, int_ref = ref_cluster*child_sex, int_high = high_cluster*child_sex, int_opp = opps_cluster*child_sex, int_smoking = smoking_cluster*child_sex, int_phthalate = phthalate_cluster*child_sex)
+```
+
+```{r}
+
+# regression with the interaction terms
+
+klm_int_adj_all_viq <- lm(final_chem$viq ~ final_chem$high_cluster + final_chem$opps_cluster + final_chem$smoking_cluster + final_chem$phthalate_cluster + final_chem$ref_cluster + final_chem$int_high + final_chem$int_opp + final_chem$int_smoking + final_chem$int_phthalate + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$maternal_race + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$alc)
+summary(klm_int_adj_all_viq)
+
+klm_int_adj_all_piq <- lm(final_chem$piq ~ final_chem$high_cluster + final_chem$opps_cluster + final_chem$smoking_cluster + final_chem$phthalate_cluster + final_chem$ref_cluster + final_chem$int_high + final_chem$int_opp + final_chem$int_smoking + final_chem$int_phthalate + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$maternal_race + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$alc)
+summary(klm_int_adj_all_piq)
+
+klm_int_adj_all_fsiq <- lm(final_chem$fsiq ~ final_chem$high_cluster + final_chem$opps_cluster + final_chem$smoking_cluster + final_chem$phthalate_cluster + final_chem$ref_cluster + final_chem$int_high + final_chem$int_opp + final_chem$int_smoking + final_chem$int_phthalate + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$maternal_race + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$alc)
+summary(klm_int_adj_all_fsiq)
+
+```
+
