@@ -1,0 +1,981 @@
+---
+title: "Latent Profile Analysis"
+author: "Amanda Yonkman"
+date: "14/09/2020, Edited August 19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r basic prep}
+# clearing the environment
+rm(list=ls(all=TRUE))
+```
+
+```{r basic prep}
+library(mclust)
+library(tidyLPA)
+library(dplyr)
+library(plyr)
+library(ggplot2)
+library(pheatmap)
+library(readr)
+library(readxl)
+library(Weighted.Desc.Stat)
+library(ggpubr)
+
+# setting the working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data/Completed Files")  
+
+# preparing the data:
+
+## This dataset has already been cleaned. It includes the chemical, WPPSI-III, and demographic data
+all_data <- read_csv("AY_MIREC_Analysis_July22_2020.csv")
+View(all_data)
+
+## I'll only want the chemical data for the LPA. Filtering out other data, as well as the chemical sums and the extra BDEs I don't want:
+chem_data <- all_data[,c(2:10, 12:19, 23, 24, 26:31, 33, 38)]
+
+# renaming the variables (all chemical variables are in log2 from this point forward, so there's no need to specify):
+chem_data <- rename(chem_data, c("log2.arsenic.t1" = "As", "log2.cadmium.t1" = "Cd", "log2.lead.t1" =  "Pb", "log2.manganese.t1" =  "Mn", "log2.mercury.t1" = "Hg", "log2.bbhc.t1" = "B-HCH", "log2.dde.t1" = "DDE", "log2.oxychlor.t1" = "Oxy.", "log2.transnona.t1" = "Trans.", "log2.dep.t1" = "DEP", "log2.detp.t1" = "DETP", "log2.dmdtp.t1" = "DMDTP", "log2.dmp.t1" = "DMP","log2.dmtp.t1" =  "DMTP", "log2.mbp.t1" = "MnBP", "log2.mbzp.t1" = "MBzP","log2.mcpp.t1" =  "MCPP", "log2.sum.dehp.t1" = "Sum DEHP", "log2.mep.t1" =  "MEP", "log2.pcb118.t1" = "PCB118", "log2.pcb138.t1" = "PCB138", "log2.pcb153.t1" = "PCB153", "log2.pcb170.t1" = "PCB170", "log2.pcb180.t1" = "PCB180", "log2.pcb187.t1" = "PCB187", "log2.bde47.t1" = "BDE47", "log2.cot.t1" = "Cot."))
+View(chem_data)
+# 27 chemicals, n=517
+
+# setting the working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data")  
+imputed_data <- read_csv("AY_MIREC_Analysis_Feb_2021.csv")
+imputed_data
+
+# For labelling purposes later
+chemicals <- c("As", "Cd", "Pb", "Mn", "Hg", "B-HCH", "DDE", "Oxy.", "Trans.", "DEP", "DETP", "DMDTP", "DMP", "DMTP", "MnBP", "MBzP", "MCPP", "MEP", "DEHP Sum", "PCB118", "PCB138", "PCB153", "PCB170", "PCB180", "PCB187", "BDE47", "Cot.")
+
+```
+
+```{r number of profiles}
+
+## Model exploration takes a very long time to run, so this won't be run every time now that I've chosen a model 
+
+# Model 1 = equal variance and covariance set to zero
+
+#chem_data %>% 
+#  estimate_profiles(models = 1, n_profiles = c(1:15)) %>% 
+#  compare_solutions(statistics = c("BIC"))
+
+# Model 2 = varying variance and covariance set to zero
+
+#chem_data %>% 
+#  estimate_profiles(models = 2, n_profiles = c(1:12)) %>% 
+#  compare_solutions(statistics = c("BIC"))
+
+
+# Model 3 = equal variance and equal covariance
+
+#chem_data %>% 
+#  estimate_profiles(models = 3, n_profiles = c(1:10)) %>% 
+#  compare_solutions(statistics = c("BIC"))
+
+# Model "6" = varying variance and varying covariance
+
+#chem_data %>% 
+#  estimate_profiles(models = 6, n_profiles = c(1:4)) %>% 
+#  compare_solutions(statistics = c("BIC"))
+
+```
+
+```{r estimating profiles}
+# Now that I've found the correct model and number of profiles, it's time to generate an estimate of the profiles:
+# should take about 5-10 minutes
+
+profile.estimate <- (chem_data %>% 
+           estimate_profiles(models=3, n_profiles = 5))
+# finding the posterior probabilities (likelihood that each mother will fall into each profile)
+probabilities <- get_data(profile.estimate)
+View(probabilities)
+
+probabilities <- data.frame( "class" = probabilities$Class, "prob_2" = probabilities$CPROB2, "prob_1" = probabilities$CPROB1, "prob_5" = probabilities$CPROB5, "prob_4" = probabilities$CPROB4, "prob_3" = probabilities$CPROB3, "child_sex" = all_data$sex2)
+probabilities <- filter(probabilities, child_sex!="NA")
+
+```
+
+```{r making the final dataset}
+
+all_data <- filter(all_data, sex2!="NA")
+
+# combining the posterior probabilities with the chemical data, the maternal/infant demographic information, and the WPPSI-III scores:
+final_chem <- data.frame("subject_id" = all_data$subject.id, "class" = probabilities$class, "prob_2" = probabilities$prob_2, "prob_1" = probabilities$prob_1, "prob_5" = probabilities$prob_5, "prob_4" = probabilities$prob_4, "prob_3" = probabilities$prob_3, "arsenic" = all_data$log2.arsenic.t1, "cadmium" = all_data$log2.cadmium.t1, "lead" = all_data$log2.lead.t1,"manganese" = all_data$log2.manganese.t1, "mercury" = all_data$log2.mercury.t1, "bbhc" = all_data$log2.bbhc.t1, "dde" = all_data$log2.dde.t1, "oxychlor" = all_data$log2.oxychlor.t1, "transnona" = all_data$log2.transnona.t1, "dep" = all_data$log2.dep.t1, "detp" = all_data$log2.detp.t1, "dmdtp" = all_data$log2.dmdtp.t1, "dmp" = all_data$log2.dmp.t1, "dmtp" = all_data$log2.dmtp.t1, "mbp" = all_data$log2.mbp.t1, "mbzp" = all_data$log2.mbzp.t1, "mcpp" = all_data$log2.mcpp.t1, "mep" = all_data$log2.mep.t1, "dehp_sum" = all_data$log2.sum.dehp.t1, "pcb118" = all_data$log2.pcb118.t1, "pcb138" = all_data$log2.pcb138.t1, "pcb153" = all_data$log2.pcb153.t1, "pcb170" = all_data$log2.pcb170.t1, "pcb180" = all_data$log2.pcb180.t1, "pcb187" = all_data$log2.pcb187.t1, "bde47" = all_data$log2.bde47.t1, "cot" = all_data$log2.cot.t1, "birth_length" = all_data$birth.length, "birth_weight" = all_data$birth.wt, "gest_age" = all_data$gest.age, "preterm_birth" = all_data$preterm2, "lbw" = imputed_data$lbw2, "lga" = all_data$lga2, "live_birth" = all_data$live.birth2, "child_sex" = all_data$sex2, "small_for_ga" = all_data$sga2, "alc" = imputed_data$alc2, "city" = all_data$city10, "couple" = all_data$couple2, "mom_education" = imputed_data$edu4, "household_income" = imputed_data$income4, "living_status" = all_data$living.status2, "married" = all_data$married2, "maternal_age" = all_data$mom.age3, "mom_birthplace" = all_data$mom.birthplace2, "maternal_obesity" = all_data$obese2, "parity" = all_data$parity4, "prepreg_bmi" = all_data$prepreg.bmi4, "race_aboriginal" = all_data$race.aboriginal2, "race_asian2" = all_data$race.asian2, "race_black2" = all_data$race.black2, "race_latin2" = all_data$race.latin2, "race_other2" = all_data$race.other2, "race_white2" = all_data$race.white2, "test_site" = all_data$site11, "smoker" = all_data$smoker2, "wppsi_1" = all_data$wppsi.1, "wppsi_2" = all_data$wppsi.2, "wppsi_3" = all_data$wppsi.3, "wppsi_4" = all_data$wppsi.4, "wppsi_5" = all_data$wppsi.5, "viq" = all_data$viq, "piq" = all_data$piq, "fsiq" = all_data$fsiq, "general_language" = all_data$general.language)
+
+final_chem <- filter(final_chem, child_sex!="NA")
+final_chem
+
+```
+
+```{r plotting the profiles}
+
+# These plots show the mean level of each chemical in profile, with standard deviation
+
+# all chemicals (not including the raw data or confidence intervals on the same figure to make it cleaner):
+plot_profiles(profile.estimate, ci=NULL, rawdata=FALSE)
+
+# Because that one is harder to read, I'll split them up into separate charts
+
+# heavy metals, cotinine, and bde47 (the chemicals with no covariation):
+metals_bde_cot <- c("As", "Cd", "Pb", "Mn", "Hg", "BDE47", "Cot.")
+metals_plot <- plot_profiles(profile.estimate, rawdata=FALSE, ci=NULL, variables = metals_bde_cot) + rremove("xlab") + rremove("ylab") + rremove("legend") + theme(text = element_text(size=9.75))
+metals_plot
+
+# OCPs and OPPs (pesticides):
+pesticides <- c( "B-HCH", "DDE", "Oxy.", "Trans.", "DEP", "DETP", "DMDTP", "DMP", "DMTP")
+pesticides_plot <- plot_profiles(profile.estimate, rawdata=FALSE, ci=NULL, variables = pesticides) + rremove("xlab") + rremove("ylab") + rremove("legend") + theme(text = element_text(size=9.75))
+pesticides_plot
+
+# Phthalates:
+phthalates <- c("MnBP", "MBzP", "MCPP", "MEP", "Sum DEHP")
+phthalates_plot <- plot_profiles(profile.estimate, rawdata=FALSE, ci=NULL, variables = phthalates) + rremove("xlab") + rremove("ylab") + rremove("legend") + theme(text = element_text(size=9.75))
+phthalates_plot
+
+# PCBs:
+pcbs <- c("PCB118", "PCB138", "PCB153", "PCB170", "PCB180", "PCB187")
+pcbs_plot <- plot_profiles(profile.estimate, rawdata=FALSE, ci=NULL, variables = pcbs) + rremove("xlab") + rremove("ylab") + rremove("legend") + theme(text = element_text(size=9.75))
+pcbs_plot
+
+colour_plot <- ggarrange(metals_plot, pesticides_plot, phthalates_plot, pcbs_plot, nrow=2, ncol=2)
+colour_plot
+```
+```{r}
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data/Completed Files") 
+
+doc <- read_pptx()
+doc <- add_slide(doc,layout = "Title and Content", master ="Office Theme")
+doc <- ph_with(doc, colour_plot,  location = ph_location_fullsize())
+print(doc, target = "colour.plot.pptx")
+```
+
+
+```{r basic numbers for each profile} 
+
+# To get a sense of the profiles, I'll just check some basic info (how many mothers fall into each profile as counts and percents of the total, and the general level of consistancy within each profile)
+
+# profile 1
+pr_1 <- filter(final_chem, class==1)
+nrow(pr_1)
+nrow(pr_1)/nrow(final_chem)*100
+mean(pr_1$prob_1)
+plot(final_chem$prob_1)
+# there are 30 mothers who qualify for profile 1 (5.80% of the population). The mothers in this profile tend to match it very well (mean = 0.9885)
+
+# profile 2
+pr_2 <- filter(final_chem, class==2)
+nrow(pr_2)
+nrow(pr_2)/nrow(final_chem)*100
+mean(pr_2$prob_2)
+plot(final_chem$prob_2)
+# there are 314 mothers who qualify for this (60.74 of the population). they're all over the place
+
+# profile 3
+pr_3 <- filter(final_chem, class==3)
+nrow(pr_3)
+nrow(pr_3)/nrow(final_chem)*100
+mean(pr_3$prob_3)
+plot(final_chem$prob_3)
+# there are 136 mothers who qualify for this (26.31% of the population). they are also inconsistant (mean = 0.9282)
+
+# profile 4
+pr_4 <- filter(final_chem, class==4)
+nrow(pr_4)
+nrow(pr_4)/nrow(final_chem)*100
+mean(pr_4$prob_4)
+plot(final_chem$prob_4)
+# there are 18 mothers who qualify for this (3.48% of the population). They match well (0.9920)
+
+# profile 5
+pr_5 <- filter(final_chem, class==5)
+nrow(pr_5)
+nrow(pr_5)/nrow(final_chem)*100
+mean(pr_5$prob_5)
+plot(final_chem$prob_5)
+# there are 19 mothers who qualify for this (3.68% of the population). they tend to match the class very well (mean = 0.9893)
+
+# Overall: the profiles are very different sizes, with Profile 2 being by far the largest. The smaller the profile, the more the mothers within that profile match eachother. 
+
+# renaming profiles based on chemical compositions
+
+final_chem$prob_high <- final_chem$prob_1
+final_chem$prob_ref <- final_chem$prob_2
+final_chem$prob_phthalate <- final_chem$prob_3 #
+final_chem$prob_smoking <- final_chem$prob_4
+final_chem$prob_low <- final_chem$prob_5
+
+```
+
+```{r}
+
+# From these the figure and the summary stats, I can see that profile 1 is a smaller group with high levels of chemicals, 2 is a large group with average levels of everything (a sort of catch-all), 3 is fairly low in everything except the phthalates and is also quite large, 4 is tiny and has high smoking chemicals, and 5 is tiny and has low levels of everything.
+
+# renaming to reflect this:
+
+final_chem$prob_high <- final_chem$prob_1
+final_chem$prob_ref <- final_chem$prob_2
+final_chem$prob_new <- final_chem$prob_3 # this used to be the opp profile, I have no name for it now. phthalate profile?
+final_chem$prob_smoking <- final_chem$prob_4
+final_chem$prob_low <- final_chem$prob_5
+
+```
+
+```{r}
+#summary statistics
+summary(final_chem$prob_ref)
+
+high_stats <- as.matrix(summary(final_chem$prob_high))
+ref_stats <- as.matrix(summary(final_chem$prob_ref))
+new_stats <- as.matrix(summary(final_chem$prob_new))
+smoking_stats <- as.matrix(summary(final_chem$prob_smoking))
+low_stats <- as.matrix(summary(final_chem$prob_low))
+
+# calculating sum of all 5 posterior probabilities just to make sure they're about 1
+sum.p <- rep(0,517)
+for(x in 1:517){
+  sum.p[x] <- sum(final_chem[x,c(3:7)])
+}
+# looks correct
+
+# adding sum probabilities to the final_chem dataset
+final_chem <- mutate(final_chem, sum.p=sum.p)
+
+# getting summmary statistics for sum probabilities at L's request
+sum_stats <- summary(final_chem$sum.p)
+
+# total summary stats
+
+summary_stats <- data_frame( "Total" = sum_stats, "Reference" = ref_stats, "High Level" = high_stats, "Low Level" = low_stats, "Smoking" = smoking_stats, "New" = new_stats)
+summary_stats
+```
+
+```{r}
+#summary statistics
+summary(final_chem$prob_ref)
+
+high_stats <- as.matrix(summary(final_chem$prob_high))
+ref_stats <- as.matrix(summary(final_chem$prob_ref))
+phthalate_stats <- as.matrix(summary(final_chem$prob_phthalate))
+smoking_stats <- as.matrix(summary(final_chem$prob_smoking))
+low_stats <- as.matrix(summary(final_chem$prob_low))
+
+# adding sum probabilities to the final_chem dataset
+final_chem <- mutate(final_chem, sum.p=sum.p)
+
+# getting summmary statistics for sum probabilities at L's request
+sum_stats <- summary(final_chem$sum.p)
+
+# total summary stats
+
+summary_stats <- data_frame( "Total" = sum_stats, "Reference" = ref_stats, "High Level" = high_stats, "Low Level" = low_stats, "Smoking" = smoking_stats, "Phthalate" = phthalate_stats)
+summary_stats
+```
+
+```{r weighted mean values for each chemical in each profile}
+
+# For the weighted means, I'm averaging the chemical levels of ALL participants, but weighing them by how well they it each profile.
+
+# The calculation is sum(x*w)/sum(w) where x is the chemical level and w is the probability of falling into a profile.
+
+weighted_mean_high <- weighted_mean_ref <- weighted_mean_phthalate <- weighted_mean_smoking <- weighted_mean_low <- weighted_sd_high <- weighted_sd_ref <- weighted_sd_phthalate <- weighted_sd_smoking <- weighted_sd_low <- rep(0,27)
+
+for(w in 1:27){
+  weighted_mean_high[w] <- weighted.mean(final_chem[,(7+w)], final_chem$prob_high)
+  weighted_sd_high[w] <- w.sd(final_chem[,(7+w)], final_chem$prob_high)
+  weighted_mean_ref[w] <- weighted.mean(final_chem[,(7+w)], final_chem$prob_ref)
+  weighted_sd_ref[w] <- w.sd(final_chem[,(7+w)], final_chem$prob_ref)
+  weighted_mean_phthalate[w] <- weighted.mean(final_chem[,(7+w)], final_chem$prob_phthalate)
+  weighted_sd_phthalate[w] <- w.sd(final_chem[,(7+w)], final_chem$prob_phthalate)
+  weighted_mean_smoking[w] <- weighted.mean(final_chem[,(7+w)], final_chem$prob_smoking)
+  weighted_sd_smoking[w] <- w.sd(final_chem[,(7+w)], final_chem$prob_smoking)
+  weighted_mean_low[w] <- weighted.mean(final_chem[,(7+w)], final_chem$prob_low)
+  weighted_sd_low[w] <- w.sd(final_chem[,(7+w)], final_chem$prob_low)
+}
+
+# putting them together:
+weighted_means <- data.frame("chemicals", weighted_mean_ref, weighted_sd_ref, weighted_mean_high, weighted_sd_high, weighted_mean_low, weighted_sd_low, weighted_mean_smoking, weighted_sd_smoking, weighted_mean_phthalate, weighted_sd_phthalate)
+weighted_means
+
+write.table(weighted_means, file="~/Desktop/Cleaned Data/Weighted Means", sep=",", row.names = FALSE)
+
+```
+
+```{r calculating z scores}
+
+# To be able to compare the chemicals to one another, I'll be converting all of the chemicals to z-scores. This way they will all be in the same range. Then, I'll make a heatmap of the mean z-scores for each chemical in each profile.
+
+# making a dataframe with all the z-scores:
+
+z_arsenic <- z_cadmium <- z_lead <- z_manganese <- z_mercury <- z_bbhc <- z_dde <- z_oxychlor <- z_transnona <- z_dep <- z_detp <- z_dmdtp <- z_dmp <- z_dmtp <- z_mbp <- z_mbzp <- z_mcpp <- z_mep <- z_dehp_sum <- z_pcb118 <- z_pcb138 <- z_pcb153 <- z_pcb170 <- z_pcb180 <- z_pcb187 <- z_bde47 <- z_cotinine <- rep(0,517)
+
+for (z in 1:517){
+  z_arsenic[z] <- (final_chem$arsenic[z]-mean(final_chem$arsenic))/sd(final_chem$arsenic)
+  z_cadmium[z] <- (final_chem$cadmium[z]-mean(final_chem$cadmium))/sd(final_chem$cadmium)
+  z_lead[z] <- (final_chem$lead[z]-mean(final_chem$lead))/sd(final_chem$lead)
+  z_manganese[z] <- (final_chem$manganese[z]-mean(final_chem$manganese))/sd(final_chem$manganese)
+  z_mercury[z] <- (final_chem$mercury[z]-mean(final_chem$mercury))/sd(final_chem$mercury)
+  z_bbhc[z] <- (final_chem$bbhc[z]-mean(final_chem$bbhc))/sd(final_chem$bbhc)
+  z_dde[z] <- (final_chem$dde[z]-mean(final_chem$dde))/sd(final_chem$dde)
+  z_oxychlor[z] <- (final_chem$oxychlor[z]-mean(final_chem$oxychlor))/sd(final_chem$oxychlor)
+  z_transnona[z] <- (final_chem$transnona[z]-mean(final_chem$transnona))/sd(final_chem$transnona)
+  z_dep[z] <- (final_chem$dep[z]-mean(final_chem$dep))/sd(final_chem$dep)
+  z_detp[z] <- (final_chem$detp[z]-mean(final_chem$detp))/sd(final_chem$detp)
+  z_dmdtp[z] <- (final_chem$dmdtp[z]-mean(final_chem$dmdtp))/sd(final_chem$dmdtp)
+  z_dmp[z] <- (final_chem$dmp[z]-mean(final_chem$dmp))/sd(final_chem$dmp)
+  z_dmtp[z] <- (final_chem$dmtp[z]-mean(final_chem$dmtp))/sd(final_chem$dmtp)
+  z_mbp[z] <- (final_chem$mbp[z]-mean(final_chem$mbp))/sd(final_chem$mbp)
+  z_mbzp[z] <- (final_chem$mbzp[z]-mean(final_chem$mbzp))/sd(final_chem$mbzp)
+  z_mcpp[z] <- (final_chem$mcpp[z]-mean(final_chem$mcpp))/sd(final_chem$mcpp)
+  z_mep[z] <- (final_chem$mep[z]-mean(final_chem$mep))/sd(final_chem$mep)
+  z_dehp_sum[z] <- (final_chem$dehp_sum[z]-mean(final_chem$dehp_sum))/sd(final_chem$dehp_sum)
+  z_pcb118[z] <- (final_chem$pcb118[z]-mean(final_chem$pcb118))/sd(final_chem$pcb118)
+  z_pcb138[z] <- (final_chem$pcb138[z]-mean(final_chem$pcb138))/sd(final_chem$pcb138)
+  z_pcb153[z] <- (final_chem$pcb153[z]-mean(final_chem$pcb153))/sd(final_chem$pcb153)
+  z_pcb170[z] <- (final_chem$pcb170[z]-mean(final_chem$pcb170))/sd(final_chem$pcb170)
+  z_pcb180[z] <- (final_chem$pcb180[z]-mean(final_chem$pcb180))/sd(final_chem$pcb180)
+  z_pcb187[z] <- (final_chem$pcb187[z]-mean(final_chem$pcb187))/sd(final_chem$pcb187)
+  z_bde47[z] <- (final_chem$bde47[z]-mean(final_chem$bde47))/sd(final_chem$bde47)
+  z_cotinine[z] <- (final_chem$cot[z]-mean(final_chem$cot))/sd(final_chem$cot)
+}
+
+z_scores <- data.frame(final_chem$subject_id, final_chem$class, final_chem$prob_ref, final_chem$prob_high, final_chem$prob_low, final_chem$prob_smoking, final_chem$prob_phthalate, z_arsenic, z_cadmium, z_lead, z_manganese, z_mercury, z_bbhc, z_dde, z_oxychlor, z_transnona, z_dep, z_detp, z_dmdtp, z_dmp, z_dmtp, z_mbp, z_mbzp, z_mcpp, z_mep, z_dehp_sum, z_pcb118, z_pcb138, z_pcb153, z_pcb170, z_pcb180, z_pcb187, z_bde47, z_cotinine)
+
+# Finding the weighted means of the z_scores
+weighted_zmean_high <- weighted_zmean_ref <- weighted_zmean_phthalate <- weighted_zmean_smoking <- weighted_zmean_low <- weighted_zsd_high <- weighted_zsd_ref <- weighted_zsd_phthalate <- weighted_zsd_smoking <- weighted_zsd_low <- rep(0,27)
+for(w in 1:27){
+  weighted_zmean_high[w] <- weighted.mean(z_scores[,(7+w)], z_scores$final_chem.prob_high)
+  weighted_zsd_high[w] <- w.sd(z_scores[,(7+w)], z_scores$final_chem.prob_high)
+  weighted_zmean_ref[w] <- weighted.mean(z_scores[,(7+w)], z_scores$final_chem.prob_ref)
+  weighted_zsd_ref[w] <- w.sd(z_scores[,(7+w)], z_scores$final_chem.prob_ref)
+  weighted_zmean_phthalate[w] <- weighted.mean(z_scores[,(7+w)], z_scores$final_chem.prob_phthalate)
+  weighted_zsd_phthalate[w] <- w.sd(z_scores[,(7+w)], z_scores$final_chem.prob_phthalate)
+  weighted_zmean_smoking[w] <- weighted.mean(z_scores[,(7+w)], z_scores$final_chem.prob_smoking)
+  weighted_zsd_smoking[w] <- w.sd(z_scores[,(7+w)], z_scores$final_chem.prob_smoking)
+  weighted_zmean_low[w] <- weighted.mean(z_scores[,(7+w)], z_scores$final_chem.prob_low)
+  weighted_zsd_low[w] <- w.sd(z_scores[,(7+w)], z_scores$final_chem.prob_low)
+}
+
+weighted_zmeans <- data.frame(chemicals, weighted_zmean_ref, weighted_zsd_ref, weighted_zmean_phthalate, weighted_zsd_phthalate, weighted_zmean_high, weighted_zsd_high, weighted_zmean_low, weighted_zsd_low, weighted_zmean_smoking, weighted_zsd_smoking)
+weighted_zmeans
+write.table(weighted_zmeans, file="~/Desktop/Cleaned Data/Weighted Mean Z Scores", sep=",", row.names = FALSE)
+
+```
+
+```{r heat map of z scores}
+
+# Next I'll be making a heatmap of the mean chemical levels in each profile, using the z-scores I just calculated.
+
+# getting the colour ready
+breaksList = seq(-3,3, by = 0.1)
+col <- colorRampPalette(c("navy", "blue", "white", "red", "red4"))(length(breaksList))
+
+#labels:
+x_lab <- c("Reference", "Phthalates", "High POPs", "Low POPs", "Smoking Chemicals")
+
+# using pheatmap because it lets me do a legend and play with the labels, which heatmap and heatmap.2 don't let me do:
+lpa_heat_map <- pheatmap(weighted_zmeans[,-c(1,3,5,7,9,11)],
+        Colv=NA, Rowv=NA, cluster_rows = FALSE, cluster_cols = FALSE, # getting rid of the the dendrogram and the clustering
+        cellwidth = 20, # changing the size of the cells
+        color=col, breaks = breaksList, # picking the colours
+        labels_col = x_lab, labels_row = chemicals, angle_col = 45
+        ) # row and column labels
+       
+lpa_heat_map
+```
+
+```{r}
+# exporting
+
+setwd("/home/ayonkman/Desktop/Cleaned Data/Completed Files") 
+
+png(height=450, width=32000, file="lpa_heat_map.png", type = "cairo")
+
+lpa_heat_map
+
+dev.off()
+```
+
+
+```{r unadjusted probabilistic regression analysis - all classes}
+
+# regression analysis with all posterior probabilities in one model, all children, unadjusted
+
+# VIQ 
+lm_unadj_all_viq <- lm(final_chem$viq ~ final_chem$prob_high + final_chem$prob_low + final_chem$prob_smoking + final_chem$prob_phthalate)
+summary(lm_unadj_all_viq)
+lm_unadj_all_viq$coefficients
+
+# PIQ 
+lm_unadj_all_piq <- lm(final_chem$piq ~ final_chem$prob_high + final_chem$prob_low + final_chem$prob_smoking + final_chem$prob_phthalate)
+summary(lm_unadj_all_piq)
+
+# FSIQ 
+lm_unadj_all_fsiq <- lm(final_chem$fsiq ~ final_chem$prob_high + final_chem$prob_low + final_chem$prob_smoking + final_chem$prob_phthalate)
+summary(lm_unadj_all_fsiq)
+
+```
+
+```{r writing the table that includes all children}
+
+viq_df <- as.matrix(lm_unadj_all_viq$coefficients)
+conf_viq_df <- as.matrix(confint(lm_unadj_all_viq))
+piq_df <- as.matrix(lm_unadj_all_piq$coefficients)
+conf_piq_df <- as.matrix(confint(lm_unadj_all_piq))
+fsiq_df <- as.matrix(lm_unadj_all_fsiq$coefficients)
+conf_fsiq_df <- as.matrix(confint(lm_unadj_all_fsiq))
+
+lm_unadj_all <- data.frame("VIQ" = viq_df[,1], "Lower VIQ" = conf_viq_df[,1], "Upper VIQ" = conf_viq_df[,2], "PIQ" = piq_df[,1], "Lower PIQ" = conf_piq_df[,1], "Upper PIQ" = conf_viq_df[,2],"FSIQ" = fsiq_df[,1], "Lower FSIQ" = conf_fsiq_df[,1], "Upper FSIQ" = conf_fsiq_df[,2])
+lm_unadj_all
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+write.table(lm_unadj_all, file="Unadjusted LM - IQ and Profiles - All children", sep=",", row.names = FALSE)
+
+```
+
+```{r stratifying between the sexes}
+
+# repeating the multivariate probabilistic models, stratified by child sex
+
+# splitting up by sex:
+
+final_boys <- filter(final_chem, child_sex==0)
+final_girls <- filter(final_chem, child_sex==1)
+
+# VIQ for boys:
+ 
+lm_unadj_all_boys_viq <- lm(final_boys$viq ~ final_boys$prob_high + final_boys$prob_low  + final_boys$prob_smoking  + final_boys$prob_low)
+summary(lm_unadj_all_boys_viq)
+
+# PIQ for boys:
+lm_unadj_all_boys_piq <- lm(final_boys$piq ~ final_boys$prob_high + final_boys$prob_low  + final_boys$prob_smoking  + final_boys$prob_low)
+summary(lm_unadj_all_boys_piq)
+
+# FSIQ for boys: 
+lm_unadj_all_boys_fsiq <- lm(final_boys$fsiq ~ final_boys$prob_high + final_boys$prob_low  + final_boys$prob_smoking  + final_boys$prob_low)
+summary(lm_unadj_all_boys_fsiq)
+
+# VIQ for girls:
+ 
+lm_unadj_all_girls_viq <- lm(final_girls$viq ~ final_girls$prob_high + final_girls$prob_low  + final_girls$prob_smoking  + final_girls$prob_low)
+summary(lm_unadj_all_girls_viq)
+
+# PIQ for girls:
+lm_unadj_all_girls_piq <- lm(final_girls$piq ~ final_girls$prob_high + final_girls$prob_low  + final_girls$prob_smoking  + final_girls$prob_low)
+summary(lm_unadj_all_girls_piq)
+
+# FSIQ for girls: 
+lm_unadj_all_girls_fsiq <- lm(final_girls$fsiq ~ final_girls$prob_high + final_girls$prob_low  + final_girls$prob_smoking  + final_girls$prob_low)
+summary(lm_unadj_all_girls_fsiq)
+
+```
+
+```{r writing the table for boys}
+
+viq_df_boys <- as.matrix(lm_unadj_all_boys_viq$coefficients)
+conf_viq_df_boys <- as.matrix(confint(lm_unadj_all_boys_viq))
+piq_df_boys <- as.matrix(lm_unadj_all_boys_piq$coefficients)
+conf_piq_df_boys <- as.matrix(confint(lm_unadj_all_boys_piq))
+fsiq_df_boys <- as.matrix(lm_unadj_all_boys_fsiq$coefficients)
+conf_fsiq_df_boys <- as.matrix(confint(lm_unadj_all_boys_fsiq))
+
+lm_unadj_all_boys <- data.frame("VIQ" = viq_df_boys[,1], "Lower VIQ" = conf_viq_df_boys[,1], "Upper VIQ" = conf_viq_df_boys[,2], "PIQ" = piq_df_boys[,1], "Lower PIQ" = conf_piq_df_boys[,1], "Upper PIQ" = conf_viq_df_boys[,2],"FSIQ" = fsiq_df_boys[,1], "Lower FSIQ" = conf_fsiq_df_boys[,1], "Upper FSIQ" = conf_fsiq_df_boys[,2])
+lm_unadj_all_boys
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+write.table(lm_unadj_all_boys, file="Unadjusted LM - IQ and Profiles - Boys", sep=",", row.names = FALSE)
+
+```
+
+```{r writing the table for girls}
+
+viq_df_girls <- as.matrix(lm_unadj_all_girls_viq$coefficients)
+conf_viq_df_girls <- as.matrix(confint(lm_unadj_all_girls_viq))
+piq_df_girls <- as.matrix(lm_unadj_all_girls_piq$coefficients)
+conf_piq_df_girls <- as.matrix(confint(lm_unadj_all_girls_piq))
+fsiq_df_girls <- as.matrix(lm_unadj_all_girls_fsiq$coefficients)
+conf_fsiq_df_girls <- as.matrix(confint(lm_unadj_all_girls_fsiq))
+
+lm_unadj_all_girls <- data.frame("VIQ" = viq_df_girls[,1], "Lower VIQ" = conf_viq_df_girls[,1], "Upper VIQ" = conf_viq_df_girls[,2], "PIQ" = piq_df_girls[,1], "Lower PIQ" = conf_piq_df_girls[,1], "Upper PIQ" = conf_viq_df_girls[,2],"FSIQ" = fsiq_df_girls[,1], "Lower FSIQ" = conf_fsiq_df_girls[,1], "Upper FSIQ" = conf_fsiq_df_girls[,2])
+lm_unadj_all_girls
+
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+write.table(lm_unadj_all_girls, file="Unadjusted LM - IQ and Profiles - Girls", sep=",", row.names = FALSE)
+
+```
+
+```{r checking location}
+# I'm starting with the city, not because I think it should be adjusted for, but because I believe it might be the reason some chemical combinations show up
+
+# making the dummy variables:
+final_chem <- mutate(final_chem,
+       city_1 = as.numeric(ifelse(city==1, 1, 0)),
+       city_4 = as.numeric(ifelse(city==4, 1, 0)),
+       city_5 = as.numeric(ifelse(city==5, 1, 0)),
+       city_7 = as.numeric(ifelse(city==7, 1, 0)),
+       city_9 = as.numeric(ifelse(city==9, 1, 0)),
+       city_10 = as.numeric(ifelse(city==10, 1, 0)))
+
+city_lm_high <- lm(final_chem$prob_high ~ final_chem$city_1 + final_chem$city_4 + final_chem$city_5 + final_chem$city_7 + final_chem$city_9 + final_chem$city_10)
+summary(city_lm_high)
+
+city_lm_ref <- lm(final_chem$prob_ref ~ final_chem$city_1 +final_chem$city_4 + final_chem$city_5 + final_chem$city_7 + final_chem$city_9 + final_chem$city_10)
+summary(city_lm_ref)
+
+city_lm_smoking <- lm(final_chem$prob_phthalate ~ final_chem$city_1 + final_chem$city_4 + final_chem$city_5+ final_chem$city_7 + final_chem$city_9 + final_chem$city_10)
+summary(city_lm_smoking)
+
+city_lm_opp <- lm(final_chem$prob_smoking ~ final_chem$city_1+ final_chem$city_4 + final_chem$city_5 +final_chem$city_7 +  final_chem$city_9 + final_chem$city_10)
+summary(city_lm_opp)
+
+city_lm_low <- lm(final_chem$prob_low ~ final_chem$city_1+ final_chem$city_4 + final_chem$city_5 + final_chem$city_7 + final_chem$city_9 + final_chem$city_10)
+summary(city_lm_low)
+
+```
+
+```{r - Profile demographics}
+# For the sake of simplicity, I'll be using the hard classifications instead of the weighted means here. This is because I want a general idea of the demographic composition of each profile, but don't want to deal with fractions of people
+
+# creating a variable for race - setting anyone who put just white as "white" and everyone else as "other" because some people put both:
+final_chem <- mutate(final_chem, race2 = ifelse(race_aboriginal == 1 | race_asian2 == 1 | race_black2 == 1 |race_latin2 == 1 | race_other2 == 1, 1, 0 ))
+
+# creating hard classifictions:
+
+ref_p <- filter(final_chem, class == 2)
+nrow(ref_p)
+high_p <- filter(final_chem, class == 1)
+nrow(high_p)
+low_p <- filter(final_chem, class == 5)
+nrow(low_p)
+smoking_p  <- filter(final_chem, class == 4)
+nrow(smoking_p)
+phthalate_p <- filter(final_chem, class == 3)
+nrow(phthalate_p)
+
+# Ref Level:
+
+percent_male_ref <- 100*(nrow(filter(ref_p, child_sex == 0))/nrow(ref_p))
+percent_female_ref <- 100*(nrow(filter(ref_p, child_sex == 1))/nrow(ref_p))
+
+percent_age_nineteen_ref <- 100*(nrow(filter(ref_p, maternal_age == 1))/nrow(ref_p))
+percent_age_thirty_ref <- 100*(nrow(filter(ref_p, maternal_age == 2))/nrow(ref_p))
+percent_age_thirtyfive_ref <- 100*(nrow(filter(ref_p, maternal_age == 3))/nrow(ref_p))
+
+percent_race_white_ref <- 100*(nrow(filter(ref_p, race2 == 0)))/nrow(ref_p)
+percent_race_other_ref <- 100*(nrow(filter(ref_p, race2 == 1)))/nrow(ref_p)
+
+percent_edu_hs_ref <- 100*(nrow(filter(ref_p, mom_education == 1)))/nrow(ref_p)
+percent_edu_college_ref <- 100*(nrow(filter(ref_p, mom_education == 2)))/nrow(ref_p)
+percent_edu_undergrad_ref <- 100*(nrow(filter(ref_p, mom_education == 3)))/nrow(ref_p)
+percent_edu_grad_ref <- 100*(nrow(filter(ref_p, mom_education == 4)))/nrow(ref_p)
+
+percent_married_ref <- 100*(nrow(filter(ref_p, married == 0)))/nrow(ref_p)
+percent_unmarried_ref <- 100*(nrow(filter(ref_p, married == 1)))/nrow(ref_p)
+
+percent_income_under_forty_ref <- 100*(nrow(filter(ref_p, household_income == 1)))/nrow(ref_p)
+percent_income_forty_ref <- 100*(nrow(filter(ref_p, household_income == 2)))/nrow(ref_p)
+percent_income_eighty_ref <- 100*(nrow(filter(ref_p, household_income == 3)))/nrow(ref_p)
+percent_income_hundred_ref <- 100*(nrow(filter(ref_p, household_income == 4)))/nrow(ref_p)
+
+percent_parity_zero_ref <- 100*(nrow(filter(ref_p, parity == 1)))/nrow(ref_p)
+percent_parity_one_ref <- 100*(nrow(filter(ref_p, parity == 2)))/nrow(ref_p)
+percent_parity_two_ref <- 100*(nrow(filter(ref_p, parity == 3)))/nrow(ref_p)
+percent_parity_three_ref <- 100*(nrow(filter(ref_p, parity == 4)))/nrow(ref_p)
+
+percent_nonsmoker_ref <- 100*(nrow(filter(ref_p, smoker == 0)))/nrow(ref_p)
+percent_smoker_ref <- 100*(nrow(filter(ref_p, smoker == 1)))/nrow(ref_p)
+
+percent_nonalc_ref <- 100*(nrow(filter(ref_p, alc == 0)))/nrow(ref_p)
+percent_alc_ref <- 100*(nrow(filter(ref_p, alc == 1)))/nrow(ref_p)
+
+# compiling
+ref_demog <- c(percent_male_ref, percent_female_ref, percent_age_nineteen_ref, percent_age_thirty_ref, percent_age_thirtyfive_ref, percent_race_white_ref, percent_race_other_ref, percent_edu_hs_ref, percent_edu_college_ref, percent_edu_undergrad_ref, percent_edu_grad_ref, percent_married_ref, percent_unmarried_ref, percent_income_under_forty_ref, percent_income_forty_ref, percent_income_eighty_ref, percent_income_hundred_ref, percent_parity_zero_ref, percent_parity_one_ref, percent_parity_two_ref, percent_parity_three_ref, percent_nonsmoker_ref, percent_smoker_ref, percent_nonalc_ref, percent_alc_ref)
+
+# High Level:
+
+percent_male_high <- 100*(nrow(filter(high_p, child_sex == 0))/nrow(high_p))
+percent_female_high <- 100*(nrow(filter(high_p, child_sex == 1))/nrow(high_p))
+
+percent_age_nineteen_high <- 100*(nrow(filter(high_p, maternal_age == 1))/nrow(high_p))
+percent_age_thirty_high <- 100*(nrow(filter(high_p, maternal_age == 2))/nrow(high_p))
+percent_age_thirtyfive_high <- 100*(nrow(filter(high_p, maternal_age == 3))/nrow(high_p))
+
+percent_race_white_high <- 100*(nrow(filter(high_p, race2 == 0)))/nrow(high_p)
+percent_race_other_high <- 100*(nrow(filter(high_p, race2 == 1)))/nrow(high_p)
+
+percent_edu_hs_high <- 100*(nrow(filter(high_p, mom_education == 1)))/nrow(high_p)
+percent_edu_college_high <- 100*(nrow(filter(high_p, mom_education == 2)))/nrow(high_p)
+percent_edu_undergrad_high <- 100*(nrow(filter(high_p, mom_education == 3)))/nrow(high_p)
+percent_edu_grad_high <- 100*(nrow(filter(high_p, mom_education == 4)))/nrow(high_p)
+
+percent_married_high <- 100*(nrow(filter(high_p, married == 0)))/nrow(high_p)
+percent_unmarried_high <- 100*(nrow(filter(high_p, married == 1)))/nrow(high_p)
+
+percent_income_under_forty_high <- 100*(nrow(filter(high_p, household_income == 1)))/nrow(high_p)
+percent_income_forty_high <- 100*(nrow(filter(high_p, household_income == 2)))/nrow(high_p)
+percent_income_eighty_high <- 100*(nrow(filter(high_p, household_income == 3)))/nrow(high_p)
+percent_income_hundred_high <- 100*(nrow(filter(high_p, household_income == 4)))/nrow(high_p)
+
+percent_parity_zero_high <- 100*(nrow(filter(high_p, parity == 1)))/nrow(high_p)
+percent_parity_one_high <- 100*(nrow(filter(high_p, parity == 2)))/nrow(high_p)
+percent_parity_two_high <- 100*(nrow(filter(high_p, parity == 3)))/nrow(high_p)
+percent_parity_three_high <- 100*(nrow(filter(high_p, parity == 4)))/nrow(high_p)
+
+percent_nonsmoker_high <- 100*(nrow(filter(high_p, smoker == 0)))/nrow(high_p)
+percent_smoker_high <- 100*(nrow(filter(high_p, smoker == 1)))/nrow(high_p)
+
+percent_nonalc_high <- 100*(nrow(filter(high_p, alc == 0)))/nrow(high_p)
+percent_alc_high <- 100*(nrow(filter(high_p, alc == 1)))/nrow(high_p)
+
+# compiling
+high_demog <- c(percent_male_high, percent_female_high, percent_age_nineteen_high, percent_age_thirty_high, percent_age_thirtyfive_high, percent_race_white_high, percent_race_other_high, percent_edu_hs_high, percent_edu_college_high, percent_edu_undergrad_high, percent_edu_grad_high, percent_married_high, percent_unmarried_high, percent_income_under_forty_high, percent_income_forty_high, percent_income_eighty_high, percent_income_hundred_high, percent_parity_zero_high, percent_parity_one_high, percent_parity_two_high, percent_parity_three_high, percent_nonsmoker_high, percent_smoker_high, percent_nonalc_high, percent_alc_high)
+
+# Low Level:
+
+percent_male_low <- 100*(nrow(filter(low_p, child_sex == 0))/nrow(low_p))
+percent_female_low <- 100*(nrow(filter(low_p, child_sex == 1))/nrow(low_p))
+
+percent_age_nineteen_low <- 100*(nrow(filter(low_p, maternal_age == 1))/nrow(low_p))
+percent_age_thirty_low <- 100*(nrow(filter(low_p, maternal_age == 2))/nrow(low_p))
+percent_age_thirtyfive_low <- 100*(nrow(filter(low_p, maternal_age == 3))/nrow(low_p))
+
+percent_race_white_low <- 100*(nrow(filter(low_p, race2 == 0)))/nrow(low_p)
+percent_race_other_low <- 100*(nrow(filter(low_p, race2 == 1)))/nrow(low_p)
+
+percent_edu_hs_low <- 100*(nrow(filter(low_p, mom_education == 1)))/nrow(low_p)
+percent_edu_college_low <- 100*(nrow(filter(low_p, mom_education == 2)))/nrow(low_p)
+percent_edu_undergrad_low <- 100*(nrow(filter(low_p, mom_education == 3)))/nrow(low_p)
+percent_edu_grad_low <- 100*(nrow(filter(low_p, mom_education == 4)))/nrow(low_p)
+
+percent_married_low <- 100*(nrow(filter(low_p, married == 0)))/nrow(low_p)
+percent_unmarried_low <- 100*(nrow(filter(low_p, married == 1)))/nrow(low_p)
+
+percent_income_under_forty_low <- 100*(nrow(filter(low_p, household_income == 1)))/nrow(low_p)
+percent_income_forty_low <- 100*(nrow(filter(low_p, household_income == 2)))/nrow(low_p)
+percent_income_eighty_low <- 100*(nrow(filter(low_p, household_income == 3)))/nrow(low_p)
+percent_income_hundred_low <- 100*(nrow(filter(low_p, household_income == 4)))/nrow(low_p)
+
+percent_parity_zero_low <- 100*(nrow(filter(low_p, parity == 1)))/nrow(low_p)
+percent_parity_one_low <- 100*(nrow(filter(low_p, parity == 2)))/nrow(low_p)
+percent_parity_two_low <- 100*(nrow(filter(low_p, parity == 3)))/nrow(low_p)
+percent_parity_three_low <- 100*(nrow(filter(low_p, parity == 4)))/nrow(low_p)
+
+percent_nonsmoker_low <- 100*(nrow(filter(low_p, smoker == 0)))/nrow(low_p)
+percent_smoker_low <- 100*(nrow(filter(low_p, smoker == 1)))/nrow(low_p)
+
+percent_nonalc_low <- 100*(nrow(filter(low_p, alc == 0)))/nrow(low_p)
+percent_alc_low <- 100*(nrow(filter(low_p, alc == 1)))/nrow(low_p)
+
+# compiling
+low_demog <- c(percent_male_low, percent_female_low, percent_age_nineteen_low, percent_age_thirty_low, percent_age_thirtyfive_low, percent_race_white_low, percent_race_other_low, percent_edu_hs_low, percent_edu_college_low, percent_edu_undergrad_low, percent_edu_grad_low, percent_married_low, percent_unmarried_low, percent_income_under_forty_low, percent_income_forty_low, percent_income_eighty_low, percent_income_hundred_low, percent_parity_zero_low, percent_parity_one_low, percent_parity_two_low, percent_parity_three_low, percent_nonsmoker_low, percent_smoker_low, percent_nonalc_low, percent_alc_low)
+
+# Smoking Chemicals
+
+percent_male_smoking <- 100*(nrow(filter(smoking_p, child_sex == 0))/nrow(smoking_p))
+percent_female_smoking <- 100*(nrow(filter(smoking_p, child_sex == 1))/nrow(smoking_p))
+
+percent_age_nineteen_smoking <- 100*(nrow(filter(smoking_p, maternal_age == 1))/nrow(smoking_p))
+percent_age_thirty_smoking <- 100*(nrow(filter(smoking_p, maternal_age == 2))/nrow(smoking_p))
+percent_age_thirtyfive_smoking <- 100*(nrow(filter(smoking_p, maternal_age == 3))/nrow(smoking_p))
+
+percent_race_white_smoking <- 100*(nrow(filter(smoking_p, race2 == 0)))/nrow(smoking_p)
+percent_race_other_smoking <- 100*(nrow(filter(smoking_p, race2 == 1)))/nrow(smoking_p)
+
+percent_edu_hs_smoking <- 100*(nrow(filter(smoking_p, mom_education == 1)))/nrow(smoking_p)
+percent_edu_college_smoking <- 100*(nrow(filter(smoking_p, mom_education == 2)))/nrow(smoking_p)
+percent_edu_undergrad_smoking <- 100*(nrow(filter(smoking_p, mom_education == 3)))/nrow(smoking_p)
+percent_edu_grad_smoking <- 100*(nrow(filter(smoking_p, mom_education == 4)))/nrow(smoking_p)
+
+percent_married_smoking <- 100*(nrow(filter(smoking_p, married == 0)))/nrow(smoking_p)
+percent_unmarried_smoking <- 100*(nrow(filter(smoking_p, married == 1)))/nrow(smoking_p)
+
+percent_income_under_forty_smoking <- 100*(nrow(filter(smoking_p, household_income == 1)))/nrow(smoking_p)
+percent_income_forty_smoking <- 100*(nrow(filter(smoking_p, household_income == 2)))/nrow(smoking_p)
+percent_income_eighty_smoking <- 100*(nrow(filter(smoking_p, household_income == 3)))/nrow(smoking_p)
+percent_income_hundred_smoking <- 100*(nrow(filter(smoking_p, household_income == 4)))/nrow(smoking_p)
+
+percent_parity_zero_smoking <- 100*(nrow(filter(smoking_p, parity == 1)))/nrow(smoking_p)
+percent_parity_one_smoking <- 100*(nrow(filter(smoking_p, parity == 2)))/nrow(smoking_p)
+percent_parity_two_smoking <- 100*(nrow(filter(smoking_p, parity == 3)))/nrow(smoking_p)
+percent_parity_three_smoking <- 100*(nrow(filter(smoking_p, parity == 4)))/nrow(smoking_p)
+
+percent_nonsmoker_smoking <- 100*(nrow(filter(smoking_p, smoker == 0)))/nrow(smoking_p)
+percent_smoker_smoking <- 100*(nrow(filter(smoking_p, smoker == 1)))/nrow(smoking_p)
+
+percent_nonalc_smoking <- 100*(nrow(filter(smoking_p, alc == 0)))/nrow(smoking_p)
+percent_alc_smoking <- 100*(nrow(filter(smoking_p, alc == 1)))/nrow(smoking_p)
+
+# compiling
+smoking_demog <- c(percent_male_smoking, percent_female_smoking, percent_age_nineteen_smoking, percent_age_thirty_smoking, percent_age_thirtyfive_smoking, percent_race_white_smoking, percent_race_other_smoking, percent_edu_hs_smoking, percent_edu_college_smoking, percent_edu_undergrad_smoking, percent_edu_grad_smoking, percent_married_smoking, percent_unmarried_smoking, percent_income_under_forty_smoking, percent_income_forty_smoking, percent_income_eighty_smoking, percent_income_hundred_smoking, percent_parity_zero_smoking, percent_parity_one_smoking, percent_parity_two_smoking, percent_parity_three_smoking, percent_nonsmoker_smoking, percent_smoker_smoking, percent_nonalc_smoking, percent_alc_smoking)
+
+# Phthalate profile
+
+percent_male_phthalate <- 100*(nrow(filter(phthalate_p, child_sex == 0))/nrow(phthalate_p))
+percent_female_phthalate <- 100*(nrow(filter(phthalate_p, child_sex == 1))/nrow(phthalate_p))
+
+percent_age_nineteen_phthalate <- 100*(nrow(filter(phthalate_p, maternal_age == 1))/nrow(phthalate_p))
+percent_age_thirty_phthalate <- 100*(nrow(filter(phthalate_p, maternal_age == 2))/nrow(phthalate_p))
+percent_age_thirtyfive_phthalate <- 100*(nrow(filter(phthalate_p, maternal_age == 3))/nrow(phthalate_p))
+
+percent_race_white_phthalate <- 100*(nrow(filter(phthalate_p, race2 == 0)))/nrow(phthalate_p)
+percent_race_other_phthalate <- 100*(nrow(filter(phthalate_p, race2 == 1)))/nrow(phthalate_p)
+
+percent_edu_hs_phthalate <- 100*(nrow(filter(phthalate_p, mom_education == 1)))/nrow(phthalate_p)
+percent_edu_college_phthalate <- 100*(nrow(filter(phthalate_p, mom_education == 2)))/nrow(phthalate_p)
+percent_edu_undergrad_phthalate <- 100*(nrow(filter(phthalate_p, mom_education == 3)))/nrow(phthalate_p)
+percent_edu_grad_phthalate <- 100*(nrow(filter(phthalate_p, mom_education == 4)))/nrow(phthalate_p)
+
+percent_married_phthalate <- 100*(nrow(filter(phthalate_p, married == 0)))/nrow(phthalate_p)
+percent_unmarried_phthalate <- 100*(nrow(filter(phthalate_p, married == 1)))/nrow(phthalate_p)
+
+percent_income_under_forty_phthalate <- 100*(nrow(filter(phthalate_p, household_income == 1)))/nrow(phthalate_p)
+percent_income_forty_phthalate <- 100*(nrow(filter(phthalate_p, household_income == 2)))/nrow(phthalate_p)
+percent_income_eighty_phthalate <- 100*(nrow(filter(phthalate_p, household_income == 3)))/nrow(phthalate_p)
+percent_income_hundred_phthalate <- 100*(nrow(filter(phthalate_p, household_income == 4)))/nrow(phthalate_p)
+
+percent_parity_zero_phthalate <- 100*(nrow(filter(phthalate_p, parity == 1)))/nrow(phthalate_p)
+percent_parity_one_phthalate <- 100*(nrow(filter(phthalate_p, parity == 2)))/nrow(phthalate_p)
+percent_parity_two_phthalate <- 100*(nrow(filter(phthalate_p, parity == 3)))/nrow(phthalate_p)
+percent_parity_three_phthalate <- 100*(nrow(filter(phthalate_p, parity == 4)))/nrow(phthalate_p)
+
+percent_nonsmoker_phthalate <- 100*(nrow(filter(phthalate_p, smoker == 0)))/nrow(phthalate_p)
+percent_smoker_phthalate <- 100*(nrow(filter(phthalate_p, smoker == 1)))/nrow(phthalate_p)
+
+percent_nonalc_phthalate <- 100*(nrow(filter(phthalate_p, alc == 0)))/nrow(phthalate_p)
+percent_alc_phthalate <- 100*(nrow(filter(phthalate_p, alc == 1)))/nrow(phthalate_p)
+
+# compiling
+phthalate_demog <- c(percent_male_phthalate, percent_female_phthalate, percent_age_nineteen_phthalate, percent_age_thirty_phthalate, percent_age_thirtyfive_phthalate, percent_race_white_phthalate, percent_race_other_phthalate, percent_edu_hs_phthalate, percent_edu_college_phthalate, percent_edu_undergrad_phthalate, percent_edu_grad_phthalate, percent_married_phthalate, percent_unmarried_phthalate, percent_income_under_forty_phthalate, percent_income_forty_phthalate, percent_income_eighty_phthalate, percent_income_hundred_phthalate, percent_parity_zero_phthalate, percent_parity_one_phthalate, percent_parity_two_phthalate, percent_parity_three_phthalate, percent_nonsmoker_phthalate, percent_smoker_phthalate, percent_nonalc_phthalate, percent_alc_phthalate)
+
+# Total study population:
+
+percent_male <- 100*(nrow(filter(final_chem, child_sex == 0))/nrow(final_chem))
+percent_female <- 100*(nrow(filter(final_chem, child_sex == 1))/nrow(final_chem))
+
+percent_age_nineteen <- 100*(nrow(filter(final_chem, maternal_age == 1))/nrow(final_chem))
+percent_age_thirty <- 100*(nrow(filter(final_chem, maternal_age == 2))/nrow(final_chem))
+percent_age_thirtyfive <- 100*(nrow(filter(final_chem, maternal_age == 3))/nrow(final_chem))
+
+percent_race_white <- 100*(nrow(filter(final_chem, race2 == 0)))/nrow(final_chem)
+percent_race_other <- 100*(nrow(filter(final_chem, race2 == 1)))/nrow(final_chem)
+
+percent_edu_hs <- 100*(nrow(filter(final_chem, mom_education == 1)))/nrow(final_chem)
+percent_edu_college <- 100*(nrow(filter(final_chem, mom_education == 2)))/nrow(final_chem)
+percent_edu_undergrad <- 100*(nrow(filter(final_chem, mom_education == 3)))/nrow(final_chem)
+percent_edu_grad <- 100*(nrow(filter(final_chem, mom_education == 4)))/nrow(final_chem)
+
+percent_married <- 100*(nrow(filter(final_chem, married == 0)))/nrow(final_chem)
+percent_unmarried <- 100*(nrow(filter(final_chem, married == 1)))/nrow(final_chem)
+
+percent_income_under_forty <- 100*(nrow(filter(final_chem, household_income == 1)))/nrow(final_chem)
+percent_income_forty <- 100*(nrow(filter(final_chem, household_income == 2)))/nrow(final_chem)
+percent_income_eighty <- 100*(nrow(filter(final_chem, household_income == 3)))/nrow(final_chem)
+percent_income_hundred <- 100*(nrow(filter(final_chem, household_income == 4)))/nrow(final_chem)
+
+percent_parity_zero <- 100*(nrow(filter(final_chem, parity == 1)))/nrow(final_chem)
+percent_parity_one <- 100*(nrow(filter(final_chem, parity == 2)))/nrow(final_chem)
+percent_parity_two <- 100*(nrow(filter(final_chem, parity == 3)))/nrow(final_chem)
+percent_parity_three <- 100*(nrow(filter(final_chem, parity == 4)))/nrow(final_chem)
+
+percent_nonsmoker <- 100*(nrow(filter(final_chem, smoker == 0)))/nrow(final_chem)
+percent_smoker <- 100*(nrow(filter(final_chem, smoker == 1)))/nrow(final_chem)
+
+percent_nonalc <- 100*(nrow(filter(final_chem, alc == 0)))/nrow(final_chem)
+percent_alc <- 100*(nrow(filter(final_chem, alc == 1)))/nrow(final_chem)
+
+# compiling:
+total_demog <- c(percent_male, percent_female, percent_age_nineteen, percent_age_thirty, percent_age_thirtyfive, percent_race_white, percent_race_other, percent_edu_hs, percent_edu_college, percent_edu_undergrad, percent_edu_grad, percent_married, percent_unmarried, percent_income_under_forty, percent_income_forty, percent_income_eighty, percent_income_hundred, percent_parity_zero, percent_parity_one, percent_parity_two, percent_parity_three, percent_nonsmoker, percent_smoker, percent_nonalc, percent_alc)
+
+```
+
+```{r Compiling profile demographics}
+# putting them all together:
+
+demographics <- c("Male", "Female", "19-30", "30-35", "35+", "White", "Other", "Highschool", "College", "Undergrad", "Grad", "Married", "Unmarried", "< 40 000", "40 000 - 80 000", "80 000 - 100 000", "> 100 000", "Zero", "One", "Two", "Three or More", "No", "Yes", "No", "Yes")
+
+p_demographics <- data.frame("Demographic" = demographics, "Total" = total_demog, "Ref" = ref_demog, "High Level" = high_demog, "Low Level" = low_demog, "High Smoking Chemicals" = smoking_demog, "Phthalates" = phthalate_demog)
+p_demographics
+
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+
+# writing the table:
+write.table(p_demographics, file="/home/ayonkman/Desktop/Cleaned Data/Profile Demographics - Separate Classes", sep=",", row.names = FALSE)
+
+```
+
+```{r adjusted linear regression for all children}
+# using the multivariate method, with maternal age, race, education, income, parity, and alcohol as covariates for the five profile probabilities
+# took smoking out
+
+# starting by making dummy variables for the variables that aren't binary
+
+final_chem <- mutate(final_chem, age_nineteen = ifelse(final_chem$maternal_age == 1, 1, 0))
+final_chem <- mutate(final_chem, age_thirty = ifelse(final_chem$maternal_age == 2, 1, 0))
+final_chem <- mutate(final_chem, age_thirtyfive = ifelse(final_chem$maternal_age == 3, 1, 0))
+
+final_chem <- mutate(final_chem, edu_hs = ifelse(final_chem$mom_education == 1, 1, 0))
+final_chem <- mutate(final_chem, edu_college = ifelse(final_chem$mom_education == 2, 1, 0))
+final_chem <- mutate(final_chem, edu_undergrad = ifelse(final_chem$mom_education == 3, 1, 0))
+final_chem <- mutate(final_chem, edu_grad = ifelse(final_chem$mom_education == 4, 1, 0))
+
+final_chem <- mutate(final_chem, income_under_forty = ifelse(final_chem$household_income == 1, 1, 0))
+final_chem <- mutate(final_chem, income_forty = ifelse(final_chem$household_income == 2, 1, 0))
+final_chem <- mutate(final_chem, income_eighty = ifelse(final_chem$household_income == 3, 1, 0))
+final_chem <- mutate(final_chem, income_hundred = ifelse(final_chem$household_income == 4, 1, 0))
+
+final_chem <- mutate(final_chem, parity_zero = ifelse(final_chem$parity == 1, 1, 0))
+final_chem <- mutate(final_chem, parity_one = ifelse(final_chem$parity == 2, 1, 0))
+final_chem <- mutate(final_chem, parity_two = ifelse(final_chem$parity == 3, 1, 0))
+final_chem <- mutate(final_chem, parity_three_plus = ifelse(final_chem$parity == 4, 1, 0))
+
+```
+
+```{r adjusted linear regression for all children}
+lm_adj_all_viq <- lm(final_chem$viq ~ final_chem$prob_high + final_chem$prob_low + final_chem$prob_smoking + final_chem$prob_phthalate + final_chem$prob_ref + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$race_other2 + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$alc)
+summary(lm_adj_all_viq)
+
+lm_adj_all_piq <- lm(final_chem$piq ~ final_chem$prob_high + final_chem$prob_low + final_chem$prob_smoking + final_chem$prob_phthalate + final_chem$prob_ref + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$race_other2 + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$alc)
+summary(lm_adj_all_piq)
+
+lm_adj_all_fsiq <- lm(final_chem$fsiq ~ final_chem$prob_high + final_chem$prob_low + final_chem$prob_smoking + final_chem$prob_phthalate + final_chem$prob_ref + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$race_other2 + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$alc)
+summary(lm_adj_all_fsiq)
+
+```
+
+```{r adjusted table for all children}
+
+coef_adj_all_viq <- as.matrix(lm_adj_all_viq$coefficients[c(1,6,2,3,4,5)]) #putting them in the correct order
+lower_conf_adj_all_viq <- (as.matrix(confint(lm_adj_all_viq)))[c(1,6,2,3,4,5),1]
+upper_conf_adj_all_viq <- (as.matrix(confint(lm_adj_all_viq)))[c(1,6,2,3,4,5),2]
+
+coef_adj_all_piq <- as.matrix(lm_adj_all_piq$coefficients[c(1,6,2,3,4,5)])
+lower_conf_adj_all_piq <- (as.matrix(confint(lm_adj_all_piq)))[c(1,6,2,3,4,5),1]
+upper_conf_adj_all_piq <- (as.matrix(confint(lm_adj_all_piq)))[c(1,6,2,3,4,5),2]
+
+
+coef_adj_all_fsiq <- as.matrix(lm_adj_all_fsiq$coefficients[c(1,6,2,3,4,5)])
+lower_conf_adj_all_fsiq <- (as.matrix(confint(lm_adj_all_fsiq)))[c(1,6,2,3,4,5),1]
+upper_conf_adj_all_fsiq <- (as.matrix(confint(lm_adj_all_fsiq)))[c(1,6,2,3,4,5),2]
+
+profiles <- c("Intercept", "Ref", "High Level", "Low Level", "Smoking Chemicals", "Phthalates")
+
+lm_adj_all_table <- data.frame("Profile" = profiles, "VIQ" = coef_adj_all_viq, "VIQ Lower" = lower_conf_adj_all_viq, "VIQ Upper" = upper_conf_adj_all_viq, "PIQ" = coef_adj_all_piq, "PIQ Lower" = lower_conf_adj_all_piq, "PIQ Upper" = upper_conf_adj_all_piq, "FSIQ" = coef_adj_all_fsiq, "FSIQ Lower" = lower_conf_adj_all_fsiq, "FSIQ Upper" = upper_conf_adj_all_fsiq)
+lm_adj_all_table
+
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+
+# writing the table:
+write.table(lm_adj_all_table, file="/home/ayonkman/Desktop/Cleaned Data/Adjusted Table All Children", sep=",", row.names = FALSE)
+
+```
+
+```{r adjusted linear regression for boys}
+
+final_boys <- filter(final_chem, child_sex==0)
+final_girls <- filter(final_chem, child_sex==1)
+
+# using the multivariate probabilistic method, with maternal age, race, education, income, parity, and alcohol as covariates for the five profile probabilities
+
+lm_adj_boys_viq <- lm(final_boys$viq ~ final_boys$prob_high + final_boys$prob_low + final_boys$prob_smoking + final_boys$prob_phthalate + final_boys$prob_ref + final_boys$age_thirty + final_boys$age_thirtyfive + final_boys$race2 + final_boys$edu_college + final_boys$edu_undergrad + final_boys$edu_grad + final_boys$married + final_boys$income_forty + final_boys$income_eighty + final_boys$income_hundred + final_boys$parity_one + final_boys$parity_two + final_boys$parity_three_plus + final_boys$alc)
+summary(lm_adj_boys_viq)
+
+lm_adj_boys_piq <- lm(final_boys$piq ~ final_boys$prob_high + final_boys$prob_low + final_boys$prob_smoking + final_boys$prob_phthalate + final_boys$prob_ref + final_boys$age_thirty + final_boys$age_thirtyfive + final_boys$race2 + final_boys$edu_college + final_boys$edu_undergrad + final_boys$edu_grad + final_boys$married + final_boys$income_forty + final_boys$income_eighty + final_boys$income_hundred + final_boys$parity_one + final_boys$parity_two + final_boys$parity_three_plus + final_boys$alc)
+summary(lm_adj_boys_piq)
+
+lm_adj_boys_fsiq <- lm(final_boys$fsiq ~ final_boys$prob_high + final_boys$prob_low + final_boys$prob_smoking + final_boys$prob_phthalate + final_boys$prob_ref + final_boys$age_thirty + final_boys$age_thirtyfive + final_boys$race2 + final_boys$edu_college + final_boys$edu_undergrad + final_boys$edu_grad + final_boys$married + final_boys$income_forty + final_boys$income_eighty + final_boys$income_hundred + final_boys$parity_one + final_boys$parity_two + final_boys$parity_three_plus + final_boys$alc)
+summary(lm_adj_boys_fsiq)
+
+```
+
+```{r adjusted table for boys}
+coef_adj_boys_viq <- as.matrix(lm_adj_boys_viq$coefficients[c(1,6,2,3,4,5)])
+lower_conf_adj_boys_viq <- (as.matrix(confint(lm_adj_boys_viq)))[c(1,6,2,3,4,5),1]
+upper_conf_adj_boys_viq <- (as.matrix(confint(lm_adj_boys_viq)))[c(1,6,2,3,4,5),2]
+
+coef_adj_boys_piq <- as.matrix(lm_adj_boys_piq$coefficients[c(1,6,2,3,4,5)])
+lower_conf_adj_boys_piq <- (as.matrix(confint(lm_adj_boys_piq)))[c(1,6,2,3,4,5),1]
+upper_conf_adj_boys_piq <- (as.matrix(confint(lm_adj_boys_piq)))[c(1,6,2,3,4,5),2]
+
+
+coef_adj_boys_fsiq <- as.matrix(lm_adj_boys_fsiq$coefficients[c(1,6,2,3,4,5)])
+lower_conf_adj_boys_fsiq <- (as.matrix(confint(lm_adj_boys_fsiq)))[c(1,6,2,3,4,5),1]
+upper_conf_adj_boys_fsiq <- (as.matrix(confint(lm_adj_boys_fsiq)))[c(1,6,2,3,4,5),2]
+
+lm_adj_boys_table <- data.frame("Profile" = profiles, "VIQ" = coef_adj_boys_viq, "VIQ Lower" = lower_conf_adj_boys_viq, "VIQ Upper" = upper_conf_adj_boys_viq, "PIQ" = coef_adj_boys_piq, "PIQ Lower" = lower_conf_adj_boys_piq, "PIQ Upper" = upper_conf_adj_boys_piq, "FSIQ" = coef_adj_boys_fsiq, "FSIQ Lower" = lower_conf_adj_boys_fsiq, "FSIQ Upper" = upper_conf_adj_boys_fsiq)
+lm_adj_boys_table
+
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+
+# writing the table:
+write.table(lm_adj_boys_table, file="/home/ayonkman/Desktop/Cleaned Data/Adjusted Table Male Children", sep=",", row.names = FALSE)
+
+```
+
+```{r adjusted linear regression for girls}
+# using the multivariate probabilistic method, with maternal age, race, education, income, parity, and alcohol as covariates for the five profile probabilities
+# smoking removed
+
+lm_adj_girls_viq <- lm(final_girls$viq ~ final_girls$prob_high + final_girls$prob_low + final_girls$prob_smoking + final_girls$prob_phthalate + final_girls$prob_ref + final_girls$age_thirty + final_girls$age_thirtyfive + final_girls$race2 + final_girls$edu_college + final_girls$edu_undergrad + final_girls$edu_grad + final_girls$married + final_girls$income_forty + final_girls$income_eighty + final_girls$income_hundred + final_girls$parity_one + final_girls$parity_two + final_girls$parity_three_plus + final_girls$alc)
+summary(lm_adj_girls_viq)
+
+lm_adj_girls_piq <- lm(final_girls$piq ~ final_girls$prob_high + final_girls$prob_low + final_girls$prob_smoking + final_girls$prob_phthalate + final_girls$prob_ref + final_girls$age_thirty + final_girls$age_thirtyfive + final_girls$race2 + final_girls$edu_college + final_girls$edu_undergrad + final_girls$edu_grad + final_girls$married + final_girls$income_forty + final_girls$income_eighty + final_girls$income_hundred + final_girls$parity_one + final_girls$parity_two + final_girls$parity_three_plus + final_girls$alc)
+summary(lm_adj_girls_piq)
+
+lm_adj_girls_fsiq <- lm(final_girls$fsiq ~ final_girls$prob_high + final_girls$prob_low + final_girls$prob_smoking + final_girls$prob_phthalate + final_girls$prob_ref + final_girls$age_thirty + final_girls$age_thirtyfive + final_girls$race2 + final_girls$edu_college + final_girls$edu_undergrad + final_girls$edu_grad + final_girls$married + final_girls$income_forty + final_girls$income_eighty + final_girls$income_hundred + final_girls$parity_one + final_girls$parity_two + final_girls$parity_three_plus + final_girls$alc)
+summary(lm_adj_girls_fsiq)
+
+```
+
+```{r adjusted table for girls}
+coef_adj_girls_viq <- as.matrix(lm_adj_girls_viq$coefficients[c(1,6,2,3,4,5)])
+lower_conf_adj_girls_viq <- (as.matrix(confint(lm_adj_girls_viq)))[c(1,6,2,3,4,5),1]
+upper_conf_adj_girls_viq <- (as.matrix(confint(lm_adj_girls_viq)))[c(1,6,2,3,4,5),2]
+
+coef_adj_girls_piq <- as.matrix(lm_adj_girls_piq$coefficients[c(1,6,2,3,4,5)])
+lower_conf_adj_girls_piq <- (as.matrix(confint(lm_adj_girls_piq)))[c(1,6,2,3,4,5),1]
+upper_conf_adj_girls_piq <- (as.matrix(confint(lm_adj_girls_piq)))[c(1,6,2,3,4,5),2]
+
+coef_adj_girls_fsiq <- as.matrix(lm_adj_girls_fsiq$coefficients[c(1,6,2,3,4,5)])
+lower_conf_adj_girls_fsiq <- (as.matrix(confint(lm_adj_girls_fsiq)))[c(1,6,2,3,4,5),1]
+upper_conf_adj_girls_fsiq <- (as.matrix(confint(lm_adj_girls_fsiq)))[c(1,6,2,3,4,5),2]
+
+lm_adj_girls_table <- data.frame("Profile" = profiles, "VIQ" = coef_adj_girls_viq, "VIQ Lower" = lower_conf_adj_girls_viq, "VIQ Upper" = upper_conf_adj_girls_viq, "PIQ" = coef_adj_girls_piq, "PIQ Lower" = lower_conf_adj_girls_piq, "PIQ Upper" = upper_conf_adj_girls_piq, "FSIQ" = coef_adj_girls_fsiq, "FSIQ Lower" = lower_conf_adj_girls_fsiq, "FSIQ Upper" = upper_conf_adj_girls_fsiq)
+lm_adj_girls_table
+
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data")
+
+# writing the table:
+write.table(lm_adj_girls_table, file="/home/ayonkman/Desktop/Cleaned Data/Adjusted Table Female Children", sep=",", row.names = FALSE)
+
+```
+
+```{r}
+# Sex interaction
+
+# creating interaction terms for sex and profiles
+
+final_chem <- mutate(final_chem, int_ref = prob_ref*child_sex, int_high = prob_high*child_sex, int_low = prob_low*child_sex, int_smoking = prob_smoking*child_sex, int_phthalate = prob_phthalate*child_sex)
+```
+
+```{r}
+
+# regression with the interaction terms
+
+lm_int_adj_all_viq <- lm(final_chem$viq ~ final_chem$prob_high + final_chem$prob_low + final_chem$prob_smoking + final_chem$prob_phthalate + final_chem$prob_ref + final_chem$int_high + final_chem$int_low + final_chem$int_smoking + final_chem$int_phthalate + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$race2 + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$alc)
+summary(lm_int_adj_all_viq)
+
+lm_int_adj_all_piq <- lm(final_chem$piq ~ final_chem$prob_high + final_chem$prob_low + final_chem$prob_smoking + final_chem$prob_phthalate + final_chem$prob_ref + final_chem$int_high + final_chem$int_low + final_chem$int_smoking + final_chem$int_phthalate + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$race2 + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$alc)
+summary(lm_int_adj_all_piq)
+
+lm_int_adj_all_fsiq <- lm(final_chem$fsiq ~ final_chem$prob_high + final_chem$prob_low + final_chem$prob_smoking + final_chem$prob_phthalate + final_chem$prob_ref + final_chem$int_high + final_chem$int_low + final_chem$int_smoking + final_chem$int_phthalate + final_chem$age_thirty + final_chem$age_thirtyfive + final_chem$race2 + final_chem$edu_college + final_chem$edu_undergrad + final_chem$edu_grad + final_chem$married + final_chem$income_forty + final_chem$income_eighty + final_chem$income_hundred + final_chem$parity_one + final_chem$parity_two + final_chem$parity_three_plus + final_chem$alc)
+summary(lm_int_adj_all_fsiq)
+
+```
+
+
+
