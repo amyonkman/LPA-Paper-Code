@@ -1,0 +1,988 @@
+---
+title: "Descriptive Statistics"
+author: "Amanda Yonkman"
+date: "February 26, April 28, and July 21, 2020 - Compiled, imputed, and edited February 2021"
+output: html_document
+---
+
+### NOTE: running this code will take a few minutes because of the imputation step.
+
+
+```{r basic setup}
+#clear the workspace
+rm(list=ls(all=TRUE))
+
+#load packages
+library(qwraps2)
+library(knitr)
+library(dplyr)
+library(tidyr)
+library(truncnorm)
+library(readr)
+library(readxl)
+library(mice)
+library(corrplot)
+library(rvg)
+library(officer)
+
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data/Completed Files") 
+
+# Cleaned data:
+a.chem <- read_csv("AY_MIREC_Analysis_July22_2020.csv") # includes all chemical data
+
+# taking out those with missing child sex:
+a.chem <- a.chem %>% filter(!is.na(sex2))
+
+# including only the variables I want (makes imputation faster):
+a.chem <- a.chem[-(c(39,40,41,44,45,47,48,61,63,65,66,67,69,70,72,73,74,76,77))]
+a.chem
+
+
+```
+### Imputation of demographic variables
+
+```{r - using MICE to fill in missing covariate information}
+
+# to see what  we're missing:
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+apply(a.chem,2,pMiss)
+# shouldn't be missing any of the chemicals, main WPPSI-III scores, or child sex, since we already filtered that out
+# of the remaining variables we're using as confounders, only missing alc2, edu4, and income4
+
+# imputation
+imputed.a.chem <- mice(a.chem, m=5, maxit = 100, method="pmm", seed = 500, printFlag = FALSE)
+
+```
+
+```{r choosing a dataset}
+# Taking a look at the five imputed datasets for alc2 and income
+imputed.a.chem$imp[c(52, 53, 55, 56)]
+
+a.chem1 <- complete(imputed.a.chem, action = 1)
+a.chem2 <- complete(imputed.a.chem, action = 2)
+a.chem3 <- complete(imputed.a.chem, action = 3)
+a.chem4 <- complete(imputed.a.chem, action = 4)
+a.chem5 <- complete(imputed.a.chem, action = 5)
+
+# you can't use MICE to replace dummy variables, so I'll have to pick one dataset and use single imputation. I'll choose the one that has the least effect on the beta coefficients of the three imputed variables
+
+# alc2
+lm(a.chem$fsiq ~ a.chem$alc2)
+
+fit <- with(imputed.a.chem, lm(fsiq ~ alc2))
+combine <- pool(fit)
+summary(combine)
+
+lm(a.chem1$fsiq ~ a.chem1$alc2)
+lm(a.chem2$fsiq ~ a.chem2$alc2)
+lm(a.chem3$fsiq ~ a.chem3$alc2)
+lm(a.chem4$fsiq ~ a.chem4$alc2)
+lm(a.chem5$fsiq ~ a.chem5$alc2)
+
+#income4
+lm(a.chem$fsiq ~ a.chem$income4)
+
+fit <- with(imputed.a.chem, lm(fsiq ~ income4))
+combine <- pool(fit)
+summary(combine)
+
+lm(a.chem1$fsiq ~ a.chem1$income4)
+lm(a.chem2$fsiq ~ a.chem2$income4)
+lm(a.chem3$fsiq ~ a.chem3$income4)
+lm(a.chem4$fsiq ~ a.chem4$income4)
+lm(a.chem5$fsiq ~ a.chem5$income4)
+
+#edu4
+lm(a.chem$fsiq ~ a.chem$edu4)
+
+fit <- with(imputed.a.chem, lm(fsiq ~ edu4))
+combine <- pool(fit)
+summary(combine)
+
+lm(a.chem1$fsiq ~ a.chem1$edu4)
+lm(a.chem2$fsiq ~ a.chem2$edu4)
+lm(a.chem3$fsiq ~ a.chem3$edu4)
+lm(a.chem4$fsiq ~ a.chem4$edu4)
+lm(a.chem5$fsiq ~ a.chem5$edu4)
+
+# checking means:
+
+mean(a.chem$alc2, na.rm=TRUE)
+mean(a.chem1$alc2)
+mean(a.chem2$alc2)
+mean(a.chem3$alc2)
+mean(a.chem4$alc2)
+mean(a.chem5$alc2)
+
+mean(a.chem$income4, na.rm=TRUE)
+mean(a.chem1$income4)
+mean(a.chem2$income4)
+mean(a.chem3$income4)
+mean(a.chem4$income4)
+mean(a.chem5$income4)
+
+mean(a.chem$edu4, na.rm=TRUE)
+mean(a.chem1$edu4)
+mean(a.chem2$edu4)
+mean(a.chem3$edu4)
+mean(a.chem4$edu4)
+mean(a.chem5$edu4)
+
+# no huge differences in the means. The two closest seem to be 1 and 4, with 4 just slightly better. I'll be using a.chem4 from here on out
+
+a.chem <- a.chem4
+View(a.chem)
+```
+
+### Preparing the demographic variables
+
+```{r - preparing variables}
+# Race: setting anyone who put just white as "white" and everyone else as "other" because some people put both:
+a.chem <- mutate(a.chem, race2 = ifelse(race.aboriginal2 == 1 | race.asian2 == 1 | race.black2 == 1 |race.latin2 == 1 | race.other2 == 1, 1, 0 ))
+
+# Age:
+a.chem <- mutate(a.chem, age.nineteen = ifelse(mom.age3 == 1, 1, 0), age.thirty = ifelse(mom.age3 == 2, 1, 0), age.thirtyfive = ifelse(mom.age3 == 3, 1, 0))
+
+# Education:
+a.chem <- mutate(a.chem, edu.hs = ifelse(edu4 == 1, 1, 0), edu.college = ifelse(edu4 == 2, 1, 0), edu.undergrad = ifelse(edu4 == 3, 1, 0), edu.grad = ifelse(edu4 == 4, 1, 0))
+
+# Income:
+a.chem <- mutate(a.chem, income.under.forty = ifelse(income4 == 1, 1, 0), income.forty = ifelse(income4 == 2, 1, 0), income.eighty = ifelse(income4 == 3, 1, 0), income.hundred = ifelse(income4 == 4, 1, 0))
+
+# Parity:
+a.chem <- mutate(a.chem, parity.zero = ifelse(parity4 == 1, 1, 0), parity.one = ifelse(parity4 == 2, 1, 0), parity.two = ifelse(parity4 == 3, 1, 0), parity.three.plus = ifelse(parity4 == 4, 1, 0))
+
+# Prenatal Alcohol Frequency: I want to know drinks per month (30 days)
+a.chem <- mutate(a.chem, alc.freq = alc*30)
+a.chem
+
+
+```
+
+```{r demographic summary table - n}
+
+# getting the number of people in each demographic group
+
+# total
+n.total <- nrow(a.chem)
+
+# child sex
+n.boys <- nrow(filter(a.chem, sex2 == 0))
+n.girls <- nrow(filter(a.chem, sex2 == 1))
+
+# maternal age
+n.age.19 <- nrow(filter(a.chem, age.nineteen == 1))
+n.age.30 <- nrow(filter(a.chem, age.thirty == 1))
+n.age.35 <- nrow(filter(a.chem, age.thirtyfive == 1))
+
+# maternal race
+n.race.white <- nrow(filter(a.chem, race2 == 0))
+n.race.other <- nrow(filter(a.chem, race2 == 1))
+
+# maternal education
+n.edu.hs <- nrow(filter(a.chem, edu.hs == 1))
+n.edu.college <- nrow(filter(a.chem, edu.college == 1))
+n.edu.undergrad <- nrow(filter(a.chem, edu.undergrad == 1))
+n.edu.grad <- nrow(filter(a.chem, edu.grad == 1))
+
+# marital status
+n.married <- nrow(filter(a.chem, married2 == 0))
+n.unmarried <- nrow(filter(a.chem, married2 == 1))
+
+# household income
+n.income.under.forty <- nrow(filter(a.chem, income.under.forty == 1))
+n.income.forty <- nrow(filter(a.chem, income.forty == 1))
+n.income.eighty <- nrow(filter(a.chem, income.eighty == 1))
+n.income.hundred <- nrow(filter(a.chem, income.hundred == 1))
+
+# parity
+n.parity.zero <- nrow(filter(a.chem, parity.zero == 1))
+n.parity.one <- nrow(filter(a.chem, parity.one == 1))
+n.parity.two <- nrow(filter(a.chem, parity.two == 1))
+n.parity.three.plus <- nrow(filter(a.chem, parity.three.plus == 1))
+
+# prenatal smoking
+n.non.smoker <- nrow(filter(a.chem, smoker2 == 0))
+n.smoker <- nrow(filter(a.chem, smoker2 == 1))
+
+# prenatal alcohol
+n.non.alc <- nrow(filter(a.chem, alc2 == 0))
+n.alc <- nrow(filter(a.chem, alc2 == 1))
+
+n.table <- c(n.total, n.boys, n.girls, n.age.19, n.age.30, n.age.35, n.race.white, n.race.other, n.edu.hs, n.edu.college, n.edu.undergrad, n.edu.grad, n.married, n.unmarried, n.income.under.forty, n.income.forty, n.income.eighty, n.income.hundred, n.parity.zero, n.parity.one, n.parity.two, n.parity.three.plus, n.non.smoker, n.smoker, n.non.alc, n.alc)
+n.table
+```
+
+```{r mean levels of drinking - J's request}
+
+# I want to know the information for the total group and also for those who drank
+
+# total drink
+mean_alc_all <- mean(a.chem$alc.freq)
+mean_alc_all
+
+med_alc_all <- median(a.chem$alc.freq)
+med_alc_all # zero because most don't drink
+
+# just those who drank
+
+only_drinkers <- filter(a.chem, alc.freq>0)
+
+mean_alc_drinkers <-mean(only_drinkers$alc.freq)
+mean_alc_drinkers
+
+med_alc_drinkers <-median(only_drinkers$alc.freq)
+med_alc_drinkers
+
+only_drinkers$alc.freq
+
+```
+
+### Linear regression for demographics and WPPSI-III scores
+
+```{r Unadjusted demographic regression analysis - viq}
+
+# VIQ
+
+# sex (male = referent)
+lm.viq.unadj.sex <- lm(viq ~ sex2, data=a.chem)
+lm.viq.unadj.sex.coef <- as.matrix(coef(lm.viq.unadj.sex))[,1]
+lm.viq.unadj.sex.lower <- confint(lm.viq.unadj.sex)[,1]
+lm.viq.unadj.sex.upper <- confint(lm.viq.unadj.sex)[,2]
+
+# race (19 - 29 = referent)
+lm.viq.unadj.age <- lm(viq ~ age.thirty + age.thirtyfive, data=a.chem)
+lm.viq.unadj.age.coef <- as.matrix(coef(lm.viq.unadj.age))[,1]
+lm.viq.unadj.age.lower <- confint(lm.viq.unadj.age)[,1]
+lm.viq.unadj.age.upper <- confint(lm.viq.unadj.age)[,2]
+
+# race (white = referent)
+lm.viq.unadj.race <- lm(viq ~ race2, data=a.chem)
+lm.viq.unadj.race.coef <- as.matrix(coef(lm.viq.unadj.race))[,1]
+lm.viq.unadj.race.lower <- confint(lm.viq.unadj.race)[,1]
+lm.viq.unadj.race.upper <- confint(lm.viq.unadj.race)[,2]
+
+# education (highschool = referent)
+lm.viq.unadj.edu <- lm(viq ~ edu.college + edu.undergrad + edu.grad, data=a.chem)
+lm.viq.unadj.edu.coef <- as.matrix(coef(lm.viq.unadj.edu))[,1]
+lm.viq.unadj.edu.lower <- confint(lm.viq.unadj.edu)[,1]
+lm.viq.unadj.edu.upper <- confint(lm.viq.unadj.edu)[,2]
+
+# marital status (married = referent)
+lm.viq.unadj.married <- lm(viq ~ married2, data=a.chem)
+lm.viq.unadj.married.coef <- as.matrix(coef(lm.viq.unadj.married))[,1]
+lm.viq.unadj.married.lower <- confint(lm.viq.unadj.married)[,1]
+lm.viq.unadj.married.upper <- confint(lm.viq.unadj.married)[,2]
+
+# household income (<40 000 = referent)
+lm.viq.unadj.income <- lm(viq ~ income.forty + income.eighty + income.hundred, data=a.chem)
+lm.viq.unadj.income.coef <- as.matrix(coef(lm.viq.unadj.income))[,1]
+lm.viq.unadj.income.lower <- confint(lm.viq.unadj.income)[,1]
+lm.viq.unadj.income.upper <- confint(lm.viq.unadj.income)[,2]
+
+# parity (zero = referent)
+lm.viq.unadj.parity <- lm(viq ~ parity.one + parity.two + parity.three.plus, data=a.chem)
+lm.viq.unadj.parity.coef <- as.matrix(coef(lm.viq.unadj.parity))[,1]
+lm.viq.unadj.parity.lower <- confint(lm.viq.unadj.parity)[,1]
+lm.viq.unadj.parity.upper <- confint(lm.viq.unadj.parity)[,2]
+
+# smoking (non-smoker = referent)
+lm.viq.unadj.smoker <- lm(viq ~ smoker2, data=a.chem)
+lm.viq.unadj.smoker.coef <- as.matrix(coef(lm.viq.unadj.smoker))[,1]
+lm.viq.unadj.smoker.lower <- confint(lm.viq.unadj.smoker)[,1]
+lm.viq.unadj.smoker.upper <- confint(lm.viq.unadj.smoker)[,2]
+
+# alcohol (non-alc = referent)
+lm.viq.unadj.alc <- lm(viq ~ alc2, data=a.chem)
+lm.viq.unadj.alc.coef <- as.matrix(coef(lm.viq.unadj.alc))[,1]
+lm.viq.unadj.alc.lower <- confint(lm.viq.unadj.alc)[,1]
+lm.viq.unadj.alc.upper <- confint(lm.viq.unadj.alc)[,2]
+
+# putting them together:
+
+#total:
+demog.coef.viq.unadj <- data.frame("VIQ" = c(lm.viq.unadj.sex.coef, lm.viq.unadj.age.coef, lm.viq.unadj.race.coef, lm.viq.unadj.edu.coef, lm.viq.unadj.married.coef, lm.viq.unadj.income.coef, lm.viq.unadj.parity.coef, lm.viq.unadj.smoker.coef, lm.viq.unadj.alc.coef))
+demog.coef.viq.unadj
+
+#lower
+demog.lower.viq.unadj <- data.frame("VIQ Lower" = c(lm.viq.unadj.sex.lower, lm.viq.unadj.age.lower, lm.viq.unadj.race.lower, lm.viq.unadj.edu.lower, lm.viq.unadj.married.lower, lm.viq.unadj.income.lower, lm.viq.unadj.parity.lower, lm.viq.unadj.smoker.lower, lm.viq.unadj.alc.lower))
+demog.lower.viq.unadj
+
+#upper
+demog.upper.viq.unadj <- data.frame("VIQ Upper" = c(lm.viq.unadj.sex.upper, lm.viq.unadj.age.upper, lm.viq.unadj.race.upper, lm.viq.unadj.edu.upper, lm.viq.unadj.married.upper, lm.viq.unadj.income.upper, lm.viq.unadj.parity.upper, lm.viq.unadj.smoker.upper, lm.viq.unadj.alc.upper))
+demog.upper.viq.unadj
+
+```
+
+```{r Unadjusted demographic regression analysis - piq}
+
+# PIQ
+
+# sex (male = referent)
+lm.piq.unadj.sex <- lm(piq ~ sex2, data=a.chem)
+lm.piq.unadj.sex.coef <- as.matrix(coef(lm.piq.unadj.sex))[,1]
+lm.piq.unadj.sex.lower <- confint(lm.piq.unadj.sex)[,1]
+lm.piq.unadj.sex.upper <- confint(lm.piq.unadj.sex)[,2]
+
+# race (19 - 29 = referent)
+lm.piq.unadj.age <- lm(piq ~ age.thirty + age.thirtyfive, data=a.chem)
+lm.piq.unadj.age.coef <- as.matrix(coef(lm.piq.unadj.age))[,1]
+lm.piq.unadj.age.lower <- confint(lm.piq.unadj.age)[,1]
+lm.piq.unadj.age.upper <- confint(lm.piq.unadj.age)[,2]
+
+# race (white = referent)
+lm.piq.unadj.race <- lm(piq ~ race2, data=a.chem)
+lm.piq.unadj.race.coef <- as.matrix(coef(lm.piq.unadj.race))[,1]
+lm.piq.unadj.race.lower <- confint(lm.piq.unadj.race)[,1]
+lm.piq.unadj.race.upper <- confint(lm.piq.unadj.race)[,2]
+
+# education (highschool = referent)
+lm.piq.unadj.edu <- lm(piq ~ edu.college + edu.undergrad + edu.grad, data=a.chem)
+lm.piq.unadj.edu.coef <- as.matrix(coef(lm.piq.unadj.edu))[,1]
+lm.piq.unadj.edu.lower <- confint(lm.piq.unadj.edu)[,1]
+lm.piq.unadj.edu.upper <- confint(lm.piq.unadj.edu)[,2]
+
+# marital status (married = referent)
+lm.piq.unadj.married <- lm(piq ~ married2, data=a.chem)
+lm.piq.unadj.married.coef <- as.matrix(coef(lm.piq.unadj.married))[,1]
+lm.piq.unadj.married.lower <- confint(lm.piq.unadj.married)[,1]
+lm.piq.unadj.married.upper <- confint(lm.piq.unadj.married)[,2]
+
+# household income (<40 000 = referent)
+lm.piq.unadj.income <- lm(piq ~ income.forty + income.eighty + income.hundred, data=a.chem)
+lm.piq.unadj.income.coef <- as.matrix(coef(lm.piq.unadj.income))[,1]
+lm.piq.unadj.income.lower <- confint(lm.piq.unadj.income)[,1]
+lm.piq.unadj.income.upper <- confint(lm.piq.unadj.income)[,2]
+
+# parity (zero = referent)
+lm.piq.unadj.parity <- lm(piq ~ parity.one + parity.two + parity.three.plus, data=a.chem)
+lm.piq.unadj.parity.coef <- as.matrix(coef(lm.piq.unadj.parity))[,1]
+lm.piq.unadj.parity.lower <- confint(lm.piq.unadj.parity)[,1]
+lm.piq.unadj.parity.upper <- confint(lm.piq.unadj.parity)[,2]
+
+# smoking (non-smoker = referent)
+lm.piq.unadj.smoker <- lm(piq ~ smoker2, data=a.chem)
+lm.piq.unadj.smoker.coef <- as.matrix(coef(lm.piq.unadj.smoker))[,1]
+lm.piq.unadj.smoker.lower <- confint(lm.piq.unadj.smoker)[,1]
+lm.piq.unadj.smoker.upper <- confint(lm.piq.unadj.smoker)[,2]
+
+# alcohol (non-alc = referent)
+lm.piq.unadj.alc <- lm(piq ~ alc2, data=a.chem)
+lm.piq.unadj.alc.coef <- as.matrix(coef(lm.piq.unadj.alc))[,1]
+lm.piq.unadj.alc.lower <- confint(lm.piq.unadj.alc)[,1]
+lm.piq.unadj.alc.upper <- confint(lm.piq.unadj.alc)[,2]
+
+# putting them together:
+
+#total:
+demog.coef.piq.unadj <- data.frame("PIQ" = c(lm.piq.unadj.sex.coef, lm.piq.unadj.age.coef, lm.piq.unadj.race.coef, lm.piq.unadj.edu.coef, lm.piq.unadj.married.coef, lm.piq.unadj.income.coef, lm.piq.unadj.parity.coef, lm.piq.unadj.smoker.coef, lm.piq.unadj.alc.coef))
+demog.coef.piq.unadj
+
+#lower
+demog.lower.piq.unadj <- data.frame("PIQ Lower" = c(lm.piq.unadj.sex.lower, lm.piq.unadj.age.lower, lm.piq.unadj.race.lower, lm.piq.unadj.edu.lower, lm.piq.unadj.married.lower, lm.piq.unadj.income.lower, lm.piq.unadj.parity.lower, lm.piq.unadj.smoker.lower, lm.piq.unadj.alc.lower))
+demog.lower.piq.unadj
+
+#upper
+demog.upper.piq.unadj <- data.frame("PIQ Upper" = c(lm.piq.unadj.sex.upper, lm.piq.unadj.age.upper, lm.piq.unadj.race.upper, lm.piq.unadj.edu.upper, lm.piq.unadj.married.upper, lm.piq.unadj.income.upper, lm.piq.unadj.parity.upper, lm.piq.unadj.smoker.upper, lm.piq.unadj.alc.upper))
+demog.upper.piq.unadj
+
+```
+
+```{r Unadjusted demographic regression analysis - fsiq}
+
+# FSIQ
+
+# sex (male = referent)
+lm.fsiq.unadj.sex <- lm(fsiq ~ sex2, data=a.chem)
+lm.fsiq.unadj.sex.coef <- as.matrix(coef(lm.fsiq.unadj.sex))[,1]
+lm.fsiq.unadj.sex.lower <- confint(lm.fsiq.unadj.sex)[,1]
+lm.fsiq.unadj.sex.upper <- confint(lm.fsiq.unadj.sex)[,2]
+
+# race (19 - 29 = referent)
+lm.fsiq.unadj.age <- lm(fsiq ~ age.thirty + age.thirtyfive, data=a.chem)
+lm.fsiq.unadj.age.coef <- as.matrix(coef(lm.fsiq.unadj.age))[,1]
+lm.fsiq.unadj.age.lower <- confint(lm.fsiq.unadj.age)[,1]
+lm.fsiq.unadj.age.upper <- confint(lm.fsiq.unadj.age)[,2]
+
+# race (white = referent)
+lm.fsiq.unadj.race <- lm(fsiq ~ race2, data=a.chem)
+lm.fsiq.unadj.race.coef <- as.matrix(coef(lm.fsiq.unadj.race))[,1]
+lm.fsiq.unadj.race.lower <- confint(lm.fsiq.unadj.race)[,1]
+lm.fsiq.unadj.race.upper <- confint(lm.fsiq.unadj.race)[,2]
+
+# education (highschool = referent)
+lm.fsiq.unadj.edu <- lm(fsiq ~ edu.college + edu.undergrad + edu.grad, data=a.chem)
+lm.fsiq.unadj.edu.coef <- as.matrix(coef(lm.fsiq.unadj.edu))[,1]
+lm.fsiq.unadj.edu.lower <- confint(lm.fsiq.unadj.edu)[,1]
+lm.fsiq.unadj.edu.upper <- confint(lm.fsiq.unadj.edu)[,2]
+
+# marital status (married = referent)
+lm.fsiq.unadj.married <- lm(fsiq ~ married2, data=a.chem)
+lm.fsiq.unadj.married.coef <- as.matrix(coef(lm.fsiq.unadj.married))[,1]
+lm.fsiq.unadj.married.lower <- confint(lm.fsiq.unadj.married)[,1]
+lm.fsiq.unadj.married.upper <- confint(lm.fsiq.unadj.married)[,2]
+
+# household income (<40 000 = referent)
+lm.fsiq.unadj.income <- lm(fsiq ~ income.forty + income.eighty + income.hundred, data=a.chem)
+lm.fsiq.unadj.income.coef <- as.matrix(coef(lm.fsiq.unadj.income))[,1]
+lm.fsiq.unadj.income.lower <- confint(lm.fsiq.unadj.income)[,1]
+lm.fsiq.unadj.income.upper <- confint(lm.fsiq.unadj.income)[,2]
+
+# parity (zero = referent)
+lm.fsiq.unadj.parity <- lm(fsiq ~ parity.one + parity.two + parity.three.plus, data=a.chem)
+lm.fsiq.unadj.parity.coef <- as.matrix(coef(lm.fsiq.unadj.parity))[,1]
+lm.fsiq.unadj.parity.lower <- confint(lm.fsiq.unadj.parity)[,1]
+lm.fsiq.unadj.parity.upper <- confint(lm.fsiq.unadj.parity)[,2]
+
+# smoking (non-smoker = referent)
+lm.fsiq.unadj.smoker <- lm(fsiq ~ smoker2, data=a.chem)
+lm.fsiq.unadj.smoker.coef <- as.matrix(coef(lm.fsiq.unadj.smoker))[,1]
+lm.fsiq.unadj.smoker.lower <- confint(lm.fsiq.unadj.smoker)[,1]
+lm.fsiq.unadj.smoker.upper <- confint(lm.fsiq.unadj.smoker)[,2]
+
+# alcohol (non-alc = referent)
+lm.fsiq.unadj.alc <- lm(fsiq ~ alc2, data=a.chem)
+lm.fsiq.unadj.alc.coef <- as.matrix(coef(lm.fsiq.unadj.alc))[,1]
+lm.fsiq.unadj.alc.lower <- confint(lm.fsiq.unadj.alc)[,1]
+lm.fsiq.unadj.alc.upper <- confint(lm.fsiq.unadj.alc)[,2]
+
+# putting them together:
+
+#total:
+demog.coef.fsiq.unadj <- data.frame("FSIQ" = c(lm.fsiq.unadj.sex.coef, lm.fsiq.unadj.age.coef, lm.fsiq.unadj.race.coef, lm.fsiq.unadj.edu.coef, lm.fsiq.unadj.married.coef, lm.fsiq.unadj.income.coef, lm.fsiq.unadj.parity.coef, lm.fsiq.unadj.smoker.coef, lm.fsiq.unadj.alc.coef))
+demog.coef.fsiq.unadj
+
+#lower
+demog.lower.fsiq.unadj <- data.frame("FSIQ Lower" = c(lm.fsiq.unadj.sex.lower, lm.fsiq.unadj.age.lower, lm.fsiq.unadj.race.lower, lm.fsiq.unadj.edu.lower, lm.fsiq.unadj.married.lower, lm.fsiq.unadj.income.lower, lm.fsiq.unadj.parity.lower, lm.fsiq.unadj.smoker.lower, lm.fsiq.unadj.alc.lower))
+demog.lower.fsiq.unadj
+
+#upper
+demog.upper.fsiq.unadj <- data.frame("FSIQ Upper" = c(lm.fsiq.unadj.sex.upper, lm.fsiq.unadj.age.upper, lm.fsiq.unadj.race.upper, lm.fsiq.unadj.edu.upper, lm.fsiq.unadj.married.upper, lm.fsiq.unadj.income.upper, lm.fsiq.unadj.parity.upper, lm.fsiq.unadj.smoker.upper, lm.fsiq.unadj.alc.upper))
+demog.upper.fsiq.unadj
+
+```
+
+```{r combine unadjusted demographic table}
+
+unadjusted.demographic.regression <- data.frame("VIQ" = demog.coef.viq.unadj, "Lower" = demog.lower.viq.unadj, "Upper" = demog.upper.viq.unadj,"PIQ" = demog.coef.piq.unadj, "Lower" = demog.lower.piq.unadj, "Upper" = demog.upper.piq.unadj, "FSIQ" = demog.coef.fsiq.unadj, "Lower" = demog.lower.fsiq.unadj, "Upper" = demog.upper.fsiq.unadj)
+unadjusted.demographic.regression
+write.table(unadjusted.demographic.regression, file="/home/ayonkman/Desktop/Cleaned Data/Demographic Regression Analysis - Unadjusted - Feb 2021", sep=",", row.names = FALSE)
+
+```
+
+```{r Adjusted demographic regression analysis - viq}
+
+# VIQ
+
+lm.viq.adj <- lm(viq ~ sex2 + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)
+lm.viq.adj.coef <- as.matrix(coef(lm.viq.adj))[,1]
+lm.viq.adj.lower <- confint(lm.viq.adj)[,1]
+lm.viq.adj.upper <- confint(lm.viq.adj)[,2]
+
+# PIQ
+
+lm.piq.adj <- lm(piq ~ sex2 + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)
+lm.piq.adj.coef <- as.matrix(coef(lm.piq.adj))[,1]
+lm.piq.adj.lower <- confint(lm.piq.adj)[,1]
+lm.piq.adj.upper <- confint(lm.piq.adj)[,2]
+
+# FSIQ
+
+lm.fsiq.adj <- lm(fsiq ~ sex2 + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)
+lm.fsiq.adj.coef <- as.matrix(coef(lm.fsiq.adj))[,1]
+lm.fsiq.adj.lower <- confint(lm.fsiq.adj)[,1]
+lm.fsiq.adj.upper <- confint(lm.fsiq.adj)[,2]
+
+```
+
+```{r combine adjusted demographic table}
+
+adjusted.demographic.regression <- data.frame("VIQ" = lm.viq.adj.coef, "Lower" = lm.viq.adj.lower, "Upper" = lm.viq.adj.upper,"PIQ" = lm.piq.adj.coef, "Lower" = lm.piq.adj.lower, "Upper" = lm.piq.adj.upper, "FSIQ" = lm.fsiq.adj.coef, "Lower" = lm.fsiq.adj.lower, "Upper" = lm.fsiq.adj.upper)
+adjusted.demographic.regression
+write.table(adjusted.demographic.regression, file="/home/ayonkman/Desktop/Cleaned Data/Demographic Regression Analysis - Adjusted - Feb 2021", sep=",", row.names = FALSE)
+
+# set working directory
+setwd("/home/ayonkman/Desktop/Cleaned Data/Completed Files") 
+
+# load data
+## descriptive data:
+chem <- read_csv("AY_MIREC_Descriptive_July22_2020.csv")
+#View(chem)
+
+```
+
+### Examining the chemical distrutions
+
+```{r descriptive stats}
+# list of the chemicals:
+chemicals <- c("Arsenic", "Cadmium", "Lead", "Manganese", "Mercury", "B-HCH", "DDE", "Oxychlor", "Transnona", "Sum of OCP", "DEP", "DETP", "DMDTP", "DMP", "DMTP", "MnBP", "MBzP", "MCPP", "MEHHP", "MEHP", "MEOHP", "MEP", "Sum of DEHP", "Aroclor", "PCB118", "PCB138", "PCB153", "PCB170", "PCB180", "PCB187", "Sum of PCB", "Cotinine", "BDE47", "BDE99", "BDE100", "BDE153", "Sum of PBDE")
+
+# finding the percent >LOD for each chemical
+temp <- rep(0,37)
+perc.lod <- rep(0,37)
+for(k in 1:37){
+  temp[k] <- chem[,2*k]
+  perc.lod[k] <- 100-((sum(temp[[k]])/nrow(chem))*100)
+  }
+#perc.lod
+
+# finding the mean for each chemical
+temp <- rep(0,37)
+avg <- rep(0,37)
+for(l in 1:37){
+  temp[l] <- chem[,(2*l)+1]
+  avg[l] <- mean(temp[[l]])
+}
+#avg
+
+# finding the standard deviation for each chemical
+temp <- rep(0,37)
+sd <- rep(0,37)
+for(m in 1:37){
+  temp[m] <- chem[,(2*m)+1]
+  sd[m] <- sd(temp[[m]])
+}
+#sd
+
+# finding geometric mean for each chemical
+temp <- rep(0,37)
+gm <- rep(0,37)
+for(n in 1:37){
+  temp[n] <- chem[,(2*n)+1]
+  gm[n] <- exp(sum(log(temp[[n]]))/length(temp[[n]]))  
+}
+#gm
+
+# finding geometric standard deviation for each chemical
+temp <- rep(0,37)
+gsd <- rep(0,37)
+for(o in 1:37){
+  temp[o] <- chem[,(2*o)+1]
+  gsd[o] <- exp(sd(log(temp[[o]]))) 
+}
+#gsd
+
+# finding the percentiles
+
+## 25th:
+temp <- rep(0,37)
+percentile.25 <- rep(0,37)
+for(p in 1:37){
+  temp[p] <- chem[,(2*p)+1]
+  percentile.25[p] <- quantile(temp[[p]], 0.25)
+}
+## 50th:
+temp <- rep(0,37)
+percentile.50 <- rep(0,37)
+for(p in 1:37){
+  temp[p] <- chem[,(2*p)+1]
+  percentile.50[p] <- quantile(temp[[p]], 0.50)
+}
+
+## 75th:
+temp <- rep(0,37)
+percentile.75 <- rep(0,37)
+for(p in 1:37){
+  temp[p] <- chem[,(2*p)+1]
+  percentile.75[p] <- quantile(temp[[p]], 0.75)
+}
+
+## 95th:
+temp <- rep(0,37)
+percentile.95 <- rep(0,37)
+for(p in 1:37){
+  temp[p] <- chem[,(2*p)+1]
+  percentile.95[p] <- quantile(temp[[p]], 0.95)
+}
+
+## 100th (max):
+temp <- rep(0,37)
+max <- rep(0,37)
+for(p in 1:37){
+  temp[p] <- chem[,(2*p)+1]
+  max[p] <- max(temp[[p]])
+}
+```
+
+```{r saving data}
+
+# combining all into one dataset
+
+descriptive.chem <- data.frame("Chemical" = chemicals, "Percent_above_LOD" = perc.lod, "Mean" = avg, "SD" = sd, "GM" = gm, "GSD" = gsd, "25th" = percentile.25, "50th" = percentile.50, "75th" = percentile.75, "95th" = percentile.95, "Max" = max)
+descriptive.chem
+  
+# Saving
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+#save the descriptive dataset
+write.table(descriptive.chem, file="Descriptive Chemical Stats July 21 2020.csv", sep=',', row.names=FALSE) 
+
+```
+
+### Correlation plots
+
+```{r correlation of PBDEs}
+
+# Because some of the PBDEs have such low %>LODs, with only BDE47 over 60%, I'm checking the correlation between it and other BDEs to see if it can act as a representative
+
+# checking the log2-transormed numbers:
+pbde.cor <- a.chem[,c(33:37)]
+cor(pbde.cor)
+
+# checking the untransformed numbers:
+pbde.cor2 <- chem[,c(67,69,71,73,75)]
+cor(pbde.cor2)
+
+# It has pretty high correlation with the sum of the PBDEs, so I will likely only be using BDE47
+
+```
+
+```{r heat map}
+# colour:
+breaksList = seq(-3,3, by = 0.1)
+col <- colorRampPalette(c("navy", "blue", "white", "red", "red3"))(length(breaksList))
+
+cor.df <- a.chem[,c(2:10,12:19,23,24,26:31,33,38)]
+
+colnames(cor.df) <- c("Arsenic", "Cadmium", "Lead", "Manganese", "Mercury", "B-HCH", "DDE", "Oxychlor", "Transnona", "DEP", "DETP", "DMDTP", "DMP", "DMTP", "MnBP", "MBzP", "MCPP", "MEP", "DEHP Sum", "PCB118", "PCB138", "PCB153", "PCB170", "PCB180", "PCB187","BDE47","Cotinine")
+cor.df
+
+P <- cor(cor.df)
+
+corrplot(P, method="color", tl.cex=0.7, tl.col="black", col=col, outline="grey")
+
+```
+
+```{r}
+# exporting
+
+setwd("/home/ayonkman/Desktop/Cleaned Data/Completed Files") 
+
+png(height=1800, width=1800, file="corr_plot_2.png", type = "cairo")
+
+corr_plot <- corrplot(P, method="color", tl.cex=4.3, tl.col="black", col=col, outline="grey", cl.cex = 4.3)
+dev.off()
+```
+### Regression analysis for chemicals and IQ
+
+```{r unadjusted linear regression for chemicals}
+# To find the regression coefficients for the effects of each chemical on each IQ score, unadjusted for other covariates:
+
+# VIQ:
+
+# prep:
+colnums <- temp <- viq.coef.lm <- viq.coef.upper.lm <- viq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients (not finding intercepts at request of Lawrence):
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- a.chem[colnums[i]] # telling it which columns to use for the regression
+  #viq.intercept.lm[i] <- (summary(lm(a.chem$viq~temp[[i]])))$coefficients[1,1] # finding the intercept coefficients
+  #viq.intercept.lower.lm[i] <- confint(lm(a.chem$viq~temp[[i]]))[1,1] # finding the confidence interval for the intercept - lower
+  #viq.intercept.upper.lm[i] <- confint(lm(a.chem$viq~temp[[i]]))[1,2] # upper
+  viq.coef.lm[i] <- (summary(lm(a.chem$viq~temp[[i]])))$coefficients[2,1] # finding the coefficients
+  viq.coef.lower.lm[i] <- confint(lm(a.chem$viq~temp[[i]]))[2,1] # lower confidence interval
+  viq.coef.upper.lm[i] <- confint(lm(a.chem$viq~temp[[i]]))[2,2] # upper
+}
+
+# making the viq dataset:
+viq.coef <- data.frame("Coefficient" = viq.coef.lm, "Coefficient Lower CI" = viq.coef.lower.lm, "Coefficient Upper CI" = viq.coef.upper.lm)
+# PIQ:
+
+# prep:
+colnums <- temp <- piq.coef.lm <- piq.intercept.lm <- piq.intercept.upper.lm <- piq.intercept.lower.lm <- piq.coef.upper.lm <- piq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- a.chem[colnums[i]]
+  piq.coef.lm[i] <- (summary(lm(a.chem$piq~temp[[i]])))$coefficients[2,1]
+  piq.coef.lower.lm[i] <- confint(lm(a.chem$piq~temp[[i]]))[2,1]
+  piq.coef.upper.lm[i] <- confint(lm(a.chem$piq~temp[[i]]))[2,2]
+}
+
+# making the viq dataset:
+piq.coef <- data.frame("Coefficient" = piq.coef.lm, "Coefficient Lower CI" = piq.coef.lower.lm, "Coefficient Upper CI" = piq.coef.upper.lm)
+
+# FSIQ:
+
+# prep:
+colnums <- temp <- fsiq.coef.lm <- fsiq.intercept.lm <- fsiq.intercept.upper.lm <- fsiq.intercept.lower.lm <- fsiq.coef.upper.lm <- fsiq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- a.chem[colnums[i]]
+  fsiq.coef.lm[i] <- (summary(lm(a.chem$fsiq~temp[[i]])))$coefficients[2,1] 
+  fsiq.coef.lower.lm[i] <- confint(lm(a.chem$fsiq~temp[[i]]))[2,1]
+  fsiq.coef.upper.lm[i] <- confint(lm(a.chem$fsiq~temp[[i]]))[2,2]
+}
+
+# making the fsiq dataset:
+fsiq.coef <- data.frame("Coefficient" = fsiq.coef.lm, "Coefficient Lower CI" = fsiq.coef.lower.lm, "Coefficient Upper CI" = fsiq.coef.upper.lm)
+
+# total dataset
+
+chemicals <- c("Arsenic", "Cadmium", "Lead", "Manganese", "Mercury", "B-HCH", "DDE", "Oxychlor", "Transnona", "Sum of OCP", "DEP", "DETP", "DMDTP", "DMP", "DMTP", "MnBP", "MBzP", "MCPP", "MEHHP", "MEHP", "MEOHP", "MEP", "Sum of DEHP", "Aroclor", "PCB118", "PCB138", "PCB153", "PCB170", "PCB180", "PCB187", "Sum of PCB", "BDE47", "Cotinine")
+
+lm.chem <- data.frame("Chemical" = chemicals, "VIQ Coefficient" = viq.coef.lm, "VIQ Coefficient Lower CI" = viq.coef.lower.lm, "VIQ Coefficient Upper CI" = viq.coef.upper.lm, "PIQ Coefficient" = piq.coef.lm, "PIQ Coefficient Lower CI" = piq.coef.lower.lm, "PIQ Coefficient Upper CI" = piq.coef.upper.lm, "FSIQ Coefficient" = fsiq.coef.lm, "FSIQ Coefficient Lower CI" = fsiq.coef.lower.lm, "FSIQ Coefficient Upper CI" = fsiq.coef.upper.lm)
+lm.chem
+
+# Saving
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+#save the descriptive dataset
+write.table(lm.chem, file="Linear Regression of Chemicals Unadjusted - Feb 2021", sep=',', row.names=FALSE)
+
+```
+
+```{r adjusted linear regression for chemicals - all children}
+
+# Finding the regression coefficients:
+
+# VIQ:
+
+# prep:
+colnums <- temp <- viq.coef.lm <- viq.coef.upper.lm <- viq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- a.chem[colnums[i]]
+  viq.coef.lm[i] <- (summary(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)))$coefficients[2,1] # finding the coefficients
+                     
+  viq.coef.lower.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,1] # lower confidence interval
+                                  
+  viq.coef.upper.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,2] # upper
+}
+
+# making the viq dataset:
+viq.coef.adj <- data.frame("Coefficient" = viq.coef.lm, "Coefficient Lower CI" = viq.coef.lower.lm, "Coefficient Upper CI" = viq.coef.upper.lm)
+
+#View(viq.coef.adj)
+
+# PIQ:
+
+# prep:
+colnums <- temp <- piq.coef.lm <- piq.intercept.lm <- piq.intercept.upper.lm <- piq.intercept.lower.lm <- piq.coef.upper.lm <- piq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- a.chem[colnums[i]]
+                                     
+  piq.coef.lm[i] <- (summary(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)))$coefficients[2,1]
+                     
+  piq.coef.lower.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,1]
+                                  
+  piq.coef.upper.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,2]
+}
+
+# making the piq dataset:
+piq.coef.adj <- data.frame("Coefficient" = piq.coef.lm, "Coefficient Lower CI" = piq.coef.lower.lm, "Coefficient Upper CI" = piq.coef.upper.lm)
+
+#View(piq.coef.adj)
+
+# FSIQ:
+
+# prep:
+colnums <- temp <- fsiq.coef.lm <- fsiq.intercept.lm <- fsiq.intercept.upper.lm <- fsiq.intercept.lower.lm <- fsiq.coef.upper.lm <- fsiq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- a.chem[colnums[i]]
+
+  fsiq.coef.lm[i] <- (summary(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)))$coefficients[2,1] 
+                     
+  fsiq.coef.lower.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,1] 
+                                  
+  fsiq.coef.upper.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,2]
+}
+
+# making the fsiq dataset:
+fsiq.coef.adj <- data.frame("Coefficient" = fsiq.coef.lm, "Coefficient Lower CI" = fsiq.coef.lower.lm, "Coefficient Upper CI" = fsiq.coef.upper.lm)
+
+
+# total dataset:
+
+lm.chem.adj <- data.frame("Chemical" = chemicals, "VIQ Coefficient" = viq.coef.lm, "VIQ Coefficient Lower CI" = viq.coef.lower.lm, "VIQ Coefficient Upper CI" = viq.coef.upper.lm, "PIQ Coefficient" = piq.coef.lm, "PIQ Coefficient Lower CI" = piq.coef.lower.lm, "PIQ Coefficient Upper CI" = piq.coef.upper.lm, "FSIQ Coefficient" = fsiq.coef.lm, "FSIQ Coefficient Lower CI" = fsiq.coef.lower.lm, "FSIQ Coefficient Upper CI" = fsiq.coef.upper.lm)
+
+lm.chem.adj
+# Saving
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+#save the descriptive dataset
+write.table(lm.chem.adj, file="Linear Regression of Chemicals Adjusted - All children Feb 2021", sep=',', row.names=FALSE)
+
+```
+
+```{r adjusted linear regression for chemicals - male}
+
+# To find the regression coefficients for the effects of each chemical on each IQ score adjusted for covariates and stratified by child sex:
+
+# Covariates: maternal age, maternal race, maternal education, marital status, household income, parity, prenatal smoking, and prenatal alcohol
+
+# Separating out the sexes:
+only.male <- filter(a.chem, sex2 == 0)
+only.female <- filter(a.chem, sex2 == 1)
+
+# Finding the regression coefficients for all children (males only):
+
+# VIQ:
+
+# prep:
+colnums <- temp <- viq.coef.lm <- viq.coef.upper.lm <- viq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- only.male[colnums[i]] # telling it which columns to use for the regression
+  viq.coef.lm[i] <- (summary(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male)))$coefficients[2,1] # finding the coefficients
+                     
+  viq.coef.lower.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,1] # lower confidence interval
+                                  
+  viq.coef.upper.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,2] # upper
+}
+
+# making the viq dataset:
+viq.coef.adj.male <- data.frame("Coefficient" = viq.coef.lm, "Coefficient Lower CI" = viq.coef.lower.lm, "Coefficient Upper CI" = viq.coef.upper.lm)
+
+# PIQ:
+
+# prep:
+colnums <- temp <- piq.coef.lm <- piq.coef.upper.lm <- piq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- only.male[colnums[i]] # telling it which columns to use for the regression
+  piq.coef.lm[i] <- (summary(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male)))$coefficients[2,1] # finding the coefficients
+                     
+  piq.coef.lower.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,1] # lower confidence interval
+                                  
+  piq.coef.upper.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,2] # upper
+}
+
+# making the piq dataset:
+piq.coef.adj.male <- data.frame("Coefficient" = piq.coef.lm, "Coefficient Lower CI" = piq.coef.lower.lm, "Coefficient Upper CI" = piq.coef.upper.lm)
+
+# FSIQ:
+
+## prep:
+colnums <- temp <- fsiq.coef.lm <- fsiq.coef.upper.lm <- fsiq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- only.male[colnums[i]] # telling it which columns to use for the regression
+  fsiq.coef.lm[i] <- (summary(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male)))$coefficients[2,1] # finding the coefficients
+                     
+  fsiq.coef.lower.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,1] # lower confidence interval
+                                  
+  fsiq.coef.upper.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,2] # upper
+}
+
+# making the fsiq dataset:
+fsiq.coef.adj.male <- data.frame("Coefficient" = fsiq.coef.lm, "Coefficient Lower CI" = fsiq.coef.lower.lm, "Coefficient Upper CI" = fsiq.coef.upper.lm)
+
+
+# total dataset:
+
+lm.chem.adj.male <- data.frame("Chemical" = chemicals, "VIQ Coefficient" = viq.coef.lm, "VIQ Coefficient Lower CI" = viq.coef.lower.lm, "VIQ Coefficient Upper CI" = viq.coef.upper.lm, "PIQ Coefficient" = piq.coef.lm, "PIQ Coefficient Lower CI" = piq.coef.lower.lm, "PIQ Coefficient Upper CI" = piq.coef.upper.lm, "FSIQ Coefficient" = fsiq.coef.lm, "FSIQ Coefficient Lower CI" = fsiq.coef.lower.lm, "FSIQ Coefficient Upper CI" = fsiq.coef.upper.lm)
+lm.chem.adj.male
+
+# Saving
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+#save the descriptive dataset
+write.table(lm.chem.adj.male, file="Linear Regression of Chemicals Adjusted - Boys Feb 2021", sep=',', row.names=FALSE)
+
+```
+
+```{r adjusted linear regression for chemicals - female}
+
+# To find the regression coefficients for the effects of each chemical on each IQ score adjusted for covariates and stratified by child sex:
+
+# Covariates: maternal age, maternal race, maternal education, marital status, household income, parity, prenatal smoking, and prenatal alcohol
+
+# Separating out the sexes:
+only.female <- filter(a.chem, sex2 == 0)
+only.female <- filter(a.chem, sex2 == 1)
+
+# Finding the regression coefficients for all children (females only):
+
+# VIQ:
+
+# prep:
+colnums <- temp <- viq.coef.lm <- viq.coef.upper.lm <- viq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- only.female[colnums[i]] # telling it which columns to use for the regression
+  viq.coef.lm[i] <- (summary(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female)))$coefficients[2,1] # finding the coefficients
+                     
+  viq.coef.lower.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,1] # lower confidence interval
+                                  
+  viq.coef.upper.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,2] # upper
+}
+
+# making the viq dataset:
+viq.coef.adj.female <- data.frame("Coefficient" = viq.coef.lm, "Coefficient Lower CI" = viq.coef.lower.lm, "Coefficient Upper CI" = viq.coef.upper.lm)
+
+# PIQ:
+
+# prep:
+colnums <- temp <- piq.coef.lm <- piq.coef.upper.lm <- piq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- only.female[colnums[i]] # telling it which columns to use for the regression
+  piq.coef.lm[i] <- (summary(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female)))$coefficients[2,1] # finding the coefficients
+                     
+  piq.coef.lower.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,1] # lower confidence interval
+                                  
+  piq.coef.upper.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,2] # upper
+}
+
+# making the piq dataset:
+piq.coef.adj.female <- data.frame("Coefficient" = piq.coef.lm, "Coefficient Lower CI" = piq.coef.lower.lm, "Coefficient Upper CI" = piq.coef.upper.lm)
+
+# FSIQ:
+
+## prep:
+colnums <- temp <- fsiq.coef.lm <- fsiq.coef.upper.lm <- fsiq.coef.lower.lm <- rep(0,33)
+
+# calculating the coefficients:
+for(i in 1:33){
+  colnums <- c(2:33, 38)
+  temp[i] <- only.female[colnums[i]] # telling it which columns to use for the regression
+  fsiq.coef.lm[i] <- (summary(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female)))$coefficients[2,1] # finding the coefficients
+                     
+  fsiq.coef.lower.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,1] # lower confidence interval
+                                  
+  fsiq.coef.upper.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,2] # upper
+}
+
+# making the fsiq dataset:
+fsiq.coef.adj.female <- data.frame("Coefficient" = fsiq.coef.lm, "Coefficient Lower CI" = fsiq.coef.lower.lm, "Coefficient Upper CI" = fsiq.coef.upper.lm)
+
+# total dataset:
+
+lm.chem.adj.female <- data.frame("Chemical" = chemicals, "VIQ Coefficient" = viq.coef.lm, "VIQ Coefficient Lower CI" = viq.coef.lower.lm, "VIQ Coefficient Upper CI" = viq.coef.upper.lm, "PIQ Coefficient" = piq.coef.lm, "PIQ Coefficient Lower CI" = piq.coef.lower.lm, "PIQ Coefficient Upper CI" = piq.coef.upper.lm, "FSIQ Coefficient" = fsiq.coef.lm, "FSIQ Coefficient Lower CI" = fsiq.coef.lower.lm, "FSIQ Coefficient Upper CI" = fsiq.coef.upper.lm)
+lm.chem.adj.female
+
+# Saving
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
+#save the descriptive dataset
+write.table(lm.chem.adj.female, file="Linear Regression of Chemicals Adjusted - Girls Feb 2021", sep=',', row.names=FALSE)
+
+```
+```{r}
+setwd("/home/ayonkman/Desktop/Cleaned Data/")  
+
+# saving a.chem
+write.table(a.chem, file="AY_MIREC_Analysis_Feb_2021.csv", sep=',', row.names=FALSE)
+```
+
+
+
