@@ -1,7 +1,7 @@
 ---
 title: "Descriptive Statistics"
 author: "Amanda Yonkman"
-date: "February 26, April 28, and July 21, 2020 - Compiled, imputed, and edited February 2021"
+date: "February 26, April 28, and July 21, 2020 - Compiled, imputed, and edited February 2021, and again in March 2022"
 output: html_document
 ---
 
@@ -26,16 +26,19 @@ library(rvg)
 library(officer)
 
 # set working directory
-setwd("/home/ayonkman/Desktop/Cleaned Data/Completed Files") 
+setwd("/home/ayonkman/Desktop/Cleaned Data") 
 
 # Cleaned data:
-a.chem <- read_csv("AY_MIREC_Analysis_July22_2020.csv") # includes all chemical data
+a.chem <- read_csv("MIREC Loader Results/AY_MIREC_Analysis_July22_2020.csv") # includes all chemical data
 
 # taking out those with missing child sex:
 a.chem <- a.chem %>% filter(!is.na(sex2))
+a.chem
+```
 
+```{r basic setup}
 # including only the variables I want (makes imputation faster):
-a.chem <- a.chem[-(c(39,40,41,44,45,47,48,61,63,65,66,67,69,70,72,73,74,76,77))]
+a.chem <- a.chem[-(c(39,40,41,44,45,47,48,59,62,64,66,67,68,70,71,73,74,75,77,78))]
 a.chem
 
 
@@ -57,7 +60,7 @@ imputed.a.chem <- mice(a.chem, m=5, maxit = 100, method="pmm", seed = 500, print
 
 ```{r choosing a dataset}
 # Taking a look at the five imputed datasets for alc2 and income
-imputed.a.chem$imp[c(52, 53, 55, 56)]
+imputed.a.chem$imp[c(51, 52, 54, 55)]
 
 a.chem1 <- complete(imputed.a.chem, action = 1)
 a.chem2 <- complete(imputed.a.chem, action = 2)
@@ -66,6 +69,25 @@ a.chem4 <- complete(imputed.a.chem, action = 4)
 a.chem5 <- complete(imputed.a.chem, action = 5)
 
 # you can't use MICE to replace dummy variables, so I'll have to pick one dataset and use single imputation. I'll choose the one that has the least effect on the beta coefficients of the three imputed variables
+```
+
+
+```{r choosing a dataset}
+
+
+# home score
+lm(a.chem$fsiq ~ a.chem$total.home.score)
+
+fit <- with(imputed.a.chem, lm(fsiq ~ alc2))
+combine <- pool(fit)
+summary(combine)
+
+lm(a.chem1$fsiq ~ a.chem1$total.home.score)
+lm(a.chem2$fsiq ~ a.chem2$total.home.score)
+lm(a.chem3$fsiq ~ a.chem3$total.home.score)
+lm(a.chem4$fsiq ~ a.chem4$total.home.score)
+lm(a.chem5$fsiq ~ a.chem5$total.home.score)
+
 
 # alc2
 lm(a.chem$fsiq ~ a.chem$alc2)
@@ -108,6 +130,13 @@ lm(a.chem5$fsiq ~ a.chem5$edu4)
 
 # checking means:
 
+mean(a.chem$total.home.score, na.rm=TRUE)
+mean(a.chem1$total.home.score)
+mean(a.chem2$total.home.score)
+mean(a.chem3$total.home.score)
+mean(a.chem4$total.home.score)
+mean(a.chem5$total.home.score)
+
 mean(a.chem$alc2, na.rm=TRUE)
 mean(a.chem1$alc2)
 mean(a.chem2$alc2)
@@ -129,10 +158,10 @@ mean(a.chem3$edu4)
 mean(a.chem4$edu4)
 mean(a.chem5$edu4)
 
-# no huge differences in the means. The two closest seem to be 1 and 4, with 4 just slightly better. I'll be using a.chem4 from here on out
+# no huge differences in the means. Overall, the one that changes the FSIQ the least is dataset 4
 
 a.chem <- a.chem4
-View(a.chem)
+
 ```
 
 ### Preparing the demographic variables
@@ -153,10 +182,20 @@ a.chem <- mutate(a.chem, income.under.forty = ifelse(income4 == 1, 1, 0), income
 # Parity:
 a.chem <- mutate(a.chem, parity.zero = ifelse(parity4 == 1, 1, 0), parity.one = ifelse(parity4 == 2, 1, 0), parity.two = ifelse(parity4 == 3, 1, 0), parity.three.plus = ifelse(parity4 == 4, 1, 0))
 
-# Prenatal Alcohol Frequency: I want to know drinks per month (30 days)
-a.chem <- mutate(a.chem, alc.freq = alc*30)
+# HOME Scores (turning into quintiles):
+
+quant <- quantile(a.chem$total.home.score)
+
+a.chem <- mutate(a.chem, home.1 = ifelse(total.home.score <= quant[2], 1, 0), home.2 = ifelse(total.home.score > quant[2] & total.home.score <= quant[3], 1, 0),home.3 = ifelse(total.home.score > quant[3] & total.home.score <= quant[4], 1, 0), home.4 = ifelse(total.home.score > quant[4], 1, 0))
 a.chem
 
+a.chem <- mutate(a.chem, city.van = ifelse(city10 == 1,1,0), city.tor = ifelse(city10 == 4,1,0), city.ham = ifelse(city10 == 5,1,0), city.king = ifelse(city10 == 7,1,0), city.mon = ifelse(city10 == 9,1,0), city.hal = ifelse(city10 == 10,1,0))
+
+a.chem <- mutate(a.chem, prov.bc = ifelse(city10 == 1,1,0), prov.on = ifelse(city10 == 4 | city10 == 5 | city10 == 7, 1,0), prov.qc = ifelse(city10 == 9, 1,0), prov.ns = ifelse(city10 == 10,1,0))
+
+# Prenatal Alcohol Frequency: I want to know drinks per month (30 days)
+#a.chem <- mutate(a.chem, alc.freq = alc*30)
+#a.chem
 
 ```
 
@@ -210,8 +249,23 @@ n.smoker <- nrow(filter(a.chem, smoker2 == 1))
 n.non.alc <- nrow(filter(a.chem, alc2 == 0))
 n.alc <- nrow(filter(a.chem, alc2 == 1))
 
-n.table <- c(n.total, n.boys, n.girls, n.age.19, n.age.30, n.age.35, n.race.white, n.race.other, n.edu.hs, n.edu.college, n.edu.undergrad, n.edu.grad, n.married, n.unmarried, n.income.under.forty, n.income.forty, n.income.eighty, n.income.hundred, n.parity.zero, n.parity.one, n.parity.two, n.parity.three.plus, n.non.smoker, n.smoker, n.non.alc, n.alc)
+# HOME scores;
+n.1 <- nrow(filter(a.chem, home.1 == 1))
+n.2 <- nrow(filter(a.chem, home.2 == 1))
+n.3 <- nrow(filter(a.chem, home.3 == 1))
+n.4 <- nrow(filter(a.chem, home.4 == 1))
+
+# city
+n.van <-nrow(filter(a.chem, city.van == 1))
+n.tor <-nrow(filter(a.chem, city.tor == 1))
+n.ham <-nrow(filter(a.chem, city.ham == 1))
+n.king <-nrow(filter(a.chem, city.king == 1))
+n.mon <-nrow(filter(a.chem, city.mon == 1))
+n.hal <-nrow(filter(a.chem, city.hal == 1))
+
+n.table <- c(n.total, n.boys, n.girls, n.age.19, n.age.30, n.age.35, n.race.white, n.race.other, n.edu.hs, n.edu.college, n.edu.undergrad, n.edu.grad, n.married, n.unmarried, n.income.under.forty, n.income.forty, n.income.eighty, n.income.hundred, n.parity.zero, n.parity.one, n.parity.two, n.parity.three.plus, n.non.smoker, n.smoker, n.non.alc, n.alc, n.1, n.2, n.3, n.4, n.van, n.tor, n.ham, n.king, n.mon, n.hal)
 n.table
+
 ```
 
 ```{r mean levels of drinking - J's request}
@@ -219,23 +273,23 @@ n.table
 # I want to know the information for the total group and also for those who drank
 
 # total drink
-mean_alc_all <- mean(a.chem$alc.freq)
-mean_alc_all
+#mean_alc_all <- mean(a.chem$alc.freq)
+#mean_alc_all
 
-med_alc_all <- median(a.chem$alc.freq)
-med_alc_all # zero because most don't drink
+#med_alc_all <- median(a.chem$alc.freq)
+#med_alc_all # zero because most don't drink
 
 # just those who drank
 
-only_drinkers <- filter(a.chem, alc.freq>0)
+#only_drinkers <- filter(a.chem, alc.freq>0)
 
-mean_alc_drinkers <-mean(only_drinkers$alc.freq)
-mean_alc_drinkers
+#mean_alc_drinkers <-mean(only_drinkers$alc.freq)
+#mean_alc_drinkers
 
-med_alc_drinkers <-median(only_drinkers$alc.freq)
-med_alc_drinkers
+#med_alc_drinkers <-median(only_drinkers$alc.freq)
+#med_alc_drinkers
 
-only_drinkers$alc.freq
+#only_drinkers$alc.freq
 
 ```
 
@@ -299,18 +353,30 @@ lm.viq.unadj.alc.coef <- as.matrix(coef(lm.viq.unadj.alc))[,1]
 lm.viq.unadj.alc.lower <- confint(lm.viq.unadj.alc)[,1]
 lm.viq.unadj.alc.upper <- confint(lm.viq.unadj.alc)[,2]
 
+# home (home.1 = referent)
+lm.viq.unadj.home <- lm(viq ~ home.2 + home.3 + home.4, data=a.chem)
+lm.viq.unadj.home.coef <- as.matrix(coef(lm.viq.unadj.home))[,1]
+lm.viq.unadj.home.lower <- confint(lm.viq.unadj.home)[,1]
+lm.viq.unadj.home.upper <- confint(lm.viq.unadj.home)[,2]
+
+# city (city.mon = referent)
+lm.viq.unadj.city <- lm(viq ~ city.van + city.tor + city.ham + city.king + city.hal, data=a.chem)
+lm.viq.unadj.city.coef <- as.matrix(coef(lm.viq.unadj.city))[,1]
+lm.viq.unadj.city.lower <- confint(lm.viq.unadj.city)[,1]
+lm.viq.unadj.city.upper <- confint(lm.viq.unadj.city)[,2]
+
 # putting them together:
 
 #total:
-demog.coef.viq.unadj <- data.frame("VIQ" = c(lm.viq.unadj.sex.coef, lm.viq.unadj.age.coef, lm.viq.unadj.race.coef, lm.viq.unadj.edu.coef, lm.viq.unadj.married.coef, lm.viq.unadj.income.coef, lm.viq.unadj.parity.coef, lm.viq.unadj.smoker.coef, lm.viq.unadj.alc.coef))
+demog.coef.viq.unadj <- data.frame("VIQ" = c(lm.viq.unadj.sex.coef, lm.viq.unadj.age.coef, lm.viq.unadj.race.coef, lm.viq.unadj.edu.coef, lm.viq.unadj.married.coef, lm.viq.unadj.income.coef, lm.viq.unadj.parity.coef, lm.viq.unadj.smoker.coef, lm.viq.unadj.alc.coef, lm.viq.unadj.home.coef, lm.viq.unadj.city.coef))
 demog.coef.viq.unadj
 
 #lower
-demog.lower.viq.unadj <- data.frame("VIQ Lower" = c(lm.viq.unadj.sex.lower, lm.viq.unadj.age.lower, lm.viq.unadj.race.lower, lm.viq.unadj.edu.lower, lm.viq.unadj.married.lower, lm.viq.unadj.income.lower, lm.viq.unadj.parity.lower, lm.viq.unadj.smoker.lower, lm.viq.unadj.alc.lower))
+demog.lower.viq.unadj <- data.frame("VIQ Lower" = c(lm.viq.unadj.sex.lower, lm.viq.unadj.age.lower, lm.viq.unadj.race.lower, lm.viq.unadj.edu.lower, lm.viq.unadj.married.lower, lm.viq.unadj.income.lower, lm.viq.unadj.parity.lower, lm.viq.unadj.smoker.lower, lm.viq.unadj.alc.lower, lm.viq.unadj.home.lower, lm.viq.unadj.city.lower))
 demog.lower.viq.unadj
 
 #upper
-demog.upper.viq.unadj <- data.frame("VIQ Upper" = c(lm.viq.unadj.sex.upper, lm.viq.unadj.age.upper, lm.viq.unadj.race.upper, lm.viq.unadj.edu.upper, lm.viq.unadj.married.upper, lm.viq.unadj.income.upper, lm.viq.unadj.parity.upper, lm.viq.unadj.smoker.upper, lm.viq.unadj.alc.upper))
+demog.upper.viq.unadj <- data.frame("VIQ Upper" = c(lm.viq.unadj.sex.upper, lm.viq.unadj.age.upper, lm.viq.unadj.race.upper, lm.viq.unadj.edu.upper, lm.viq.unadj.married.upper, lm.viq.unadj.income.upper, lm.viq.unadj.parity.upper, lm.viq.unadj.smoker.upper, lm.viq.unadj.alc.upper, lm.viq.unadj.home.upper, lm.viq.unadj.city.upper))
 demog.upper.viq.unadj
 
 ```
@@ -373,18 +439,30 @@ lm.piq.unadj.alc.coef <- as.matrix(coef(lm.piq.unadj.alc))[,1]
 lm.piq.unadj.alc.lower <- confint(lm.piq.unadj.alc)[,1]
 lm.piq.unadj.alc.upper <- confint(lm.piq.unadj.alc)[,2]
 
+# home (home.1 = referent)
+lm.piq.unadj.home <- lm(piq ~ home.2 + home.3 + home.4, data=a.chem)
+lm.piq.unadj.home.coef <- as.matrix(coef(lm.piq.unadj.home))[,1]
+lm.piq.unadj.home.lower <- confint(lm.piq.unadj.home)[,1]
+lm.piq.unadj.home.upper <- confint(lm.piq.unadj.home)[,2]
+
+# city (city.mon = referent)
+lm.piq.unadj.city <- lm(piq ~ city.van + city.tor + city.ham + city.king + city.hal, data=a.chem)
+lm.piq.unadj.city.coef <- as.matrix(coef(lm.piq.unadj.city))[,1]
+lm.piq.unadj.city.lower <- confint(lm.piq.unadj.city)[,1]
+lm.piq.unadj.city.upper <- confint(lm.piq.unadj.city)[,2]
+
 # putting them together:
 
 #total:
-demog.coef.piq.unadj <- data.frame("PIQ" = c(lm.piq.unadj.sex.coef, lm.piq.unadj.age.coef, lm.piq.unadj.race.coef, lm.piq.unadj.edu.coef, lm.piq.unadj.married.coef, lm.piq.unadj.income.coef, lm.piq.unadj.parity.coef, lm.piq.unadj.smoker.coef, lm.piq.unadj.alc.coef))
+demog.coef.piq.unadj <- data.frame("PIQ" = c(lm.piq.unadj.sex.coef, lm.piq.unadj.age.coef, lm.piq.unadj.race.coef, lm.piq.unadj.edu.coef, lm.piq.unadj.married.coef, lm.piq.unadj.income.coef, lm.piq.unadj.parity.coef, lm.piq.unadj.smoker.coef, lm.piq.unadj.alc.coef, lm.piq.unadj.home.coef, lm.piq.unadj.city.coef))
 demog.coef.piq.unadj
 
 #lower
-demog.lower.piq.unadj <- data.frame("PIQ Lower" = c(lm.piq.unadj.sex.lower, lm.piq.unadj.age.lower, lm.piq.unadj.race.lower, lm.piq.unadj.edu.lower, lm.piq.unadj.married.lower, lm.piq.unadj.income.lower, lm.piq.unadj.parity.lower, lm.piq.unadj.smoker.lower, lm.piq.unadj.alc.lower))
+demog.lower.piq.unadj <- data.frame("PIQ Lower" = c(lm.piq.unadj.sex.lower, lm.piq.unadj.age.lower, lm.piq.unadj.race.lower, lm.piq.unadj.edu.lower, lm.piq.unadj.married.lower, lm.piq.unadj.income.lower, lm.piq.unadj.parity.lower, lm.piq.unadj.smoker.lower, lm.piq.unadj.alc.lower, lm.piq.unadj.home.lower, lm.piq.unadj.city.lower))
 demog.lower.piq.unadj
 
 #upper
-demog.upper.piq.unadj <- data.frame("PIQ Upper" = c(lm.piq.unadj.sex.upper, lm.piq.unadj.age.upper, lm.piq.unadj.race.upper, lm.piq.unadj.edu.upper, lm.piq.unadj.married.upper, lm.piq.unadj.income.upper, lm.piq.unadj.parity.upper, lm.piq.unadj.smoker.upper, lm.piq.unadj.alc.upper))
+demog.upper.piq.unadj <- data.frame("PIQ Upper" = c(lm.piq.unadj.sex.upper, lm.piq.unadj.age.upper, lm.piq.unadj.race.upper, lm.piq.unadj.edu.upper, lm.piq.unadj.married.upper, lm.piq.unadj.income.upper, lm.piq.unadj.parity.upper, lm.piq.unadj.smoker.upper, lm.piq.unadj.alc.upper, lm.piq.unadj.home.upper, lm.piq.unadj.city.upper))
 demog.upper.piq.unadj
 
 ```
@@ -447,20 +525,31 @@ lm.fsiq.unadj.alc.coef <- as.matrix(coef(lm.fsiq.unadj.alc))[,1]
 lm.fsiq.unadj.alc.lower <- confint(lm.fsiq.unadj.alc)[,1]
 lm.fsiq.unadj.alc.upper <- confint(lm.fsiq.unadj.alc)[,2]
 
+# home (home.1 = referent)
+lm.fsiq.unadj.home <- lm(fsiq ~ home.2 + home.3 + home.4, data=a.chem)
+lm.fsiq.unadj.home.coef <- as.matrix(coef(lm.fsiq.unadj.home))[,1]
+lm.fsiq.unadj.home.lower <- confint(lm.fsiq.unadj.home)[,1]
+lm.fsiq.unadj.home.upper <- confint(lm.fsiq.unadj.home)[,2]
+
+# city (city.mon = referent)
+lm.fsiq.unadj.city <- lm(fsiq ~ city.van + city.tor + city.ham + city.king + city.hal, data=a.chem)
+lm.fsiq.unadj.city.coef <- as.matrix(coef(lm.fsiq.unadj.city))[,1]
+lm.fsiq.unadj.city.lower <- confint(lm.fsiq.unadj.city)[,1]
+lm.fsiq.unadj.city.upper <- confint(lm.fsiq.unadj.city)[,2]
+
 # putting them together:
 
 #total:
-demog.coef.fsiq.unadj <- data.frame("FSIQ" = c(lm.fsiq.unadj.sex.coef, lm.fsiq.unadj.age.coef, lm.fsiq.unadj.race.coef, lm.fsiq.unadj.edu.coef, lm.fsiq.unadj.married.coef, lm.fsiq.unadj.income.coef, lm.fsiq.unadj.parity.coef, lm.fsiq.unadj.smoker.coef, lm.fsiq.unadj.alc.coef))
+demog.coef.fsiq.unadj <- data.frame("FSIQ" = c(lm.fsiq.unadj.sex.coef, lm.fsiq.unadj.age.coef, lm.fsiq.unadj.race.coef, lm.fsiq.unadj.edu.coef, lm.fsiq.unadj.married.coef, lm.fsiq.unadj.income.coef, lm.fsiq.unadj.parity.coef, lm.fsiq.unadj.smoker.coef, lm.fsiq.unadj.alc.coef, lm.fsiq.unadj.home.coef, lm.fsiq.unadj.city.coef))
 demog.coef.fsiq.unadj
 
 #lower
-demog.lower.fsiq.unadj <- data.frame("FSIQ Lower" = c(lm.fsiq.unadj.sex.lower, lm.fsiq.unadj.age.lower, lm.fsiq.unadj.race.lower, lm.fsiq.unadj.edu.lower, lm.fsiq.unadj.married.lower, lm.fsiq.unadj.income.lower, lm.fsiq.unadj.parity.lower, lm.fsiq.unadj.smoker.lower, lm.fsiq.unadj.alc.lower))
+demog.lower.fsiq.unadj <- data.frame("FSIQ Lower" = c(lm.fsiq.unadj.sex.lower, lm.fsiq.unadj.age.lower, lm.fsiq.unadj.race.lower, lm.fsiq.unadj.edu.lower, lm.fsiq.unadj.married.lower, lm.fsiq.unadj.income.lower, lm.fsiq.unadj.parity.lower, lm.fsiq.unadj.smoker.lower, lm.fsiq.unadj.alc.lower, lm.fsiq.unadj.home.lower, lm.fsiq.unadj.city.lower))
 demog.lower.fsiq.unadj
 
 #upper
-demog.upper.fsiq.unadj <- data.frame("FSIQ Upper" = c(lm.fsiq.unadj.sex.upper, lm.fsiq.unadj.age.upper, lm.fsiq.unadj.race.upper, lm.fsiq.unadj.edu.upper, lm.fsiq.unadj.married.upper, lm.fsiq.unadj.income.upper, lm.fsiq.unadj.parity.upper, lm.fsiq.unadj.smoker.upper, lm.fsiq.unadj.alc.upper))
+demog.upper.fsiq.unadj <- data.frame("FSIQ Upper" = c(lm.fsiq.unadj.sex.upper, lm.fsiq.unadj.age.upper, lm.fsiq.unadj.race.upper, lm.fsiq.unadj.edu.upper, lm.fsiq.unadj.married.upper, lm.fsiq.unadj.income.upper, lm.fsiq.unadj.parity.upper, lm.fsiq.unadj.smoker.upper, lm.fsiq.unadj.alc.upper, lm.fsiq.unadj.home.upper, lm.fsiq.unadj.city.upper))
 demog.upper.fsiq.unadj
-
 ```
 
 ```{r combine unadjusted demographic table}
@@ -475,21 +564,21 @@ write.table(unadjusted.demographic.regression, file="/home/ayonkman/Desktop/Clea
 
 # VIQ
 
-lm.viq.adj <- lm(viq ~ sex2 + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)
+lm.viq.adj <- lm(viq ~ sex2 + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal, data=a.chem)
 lm.viq.adj.coef <- as.matrix(coef(lm.viq.adj))[,1]
 lm.viq.adj.lower <- confint(lm.viq.adj)[,1]
 lm.viq.adj.upper <- confint(lm.viq.adj)[,2]
 
 # PIQ
 
-lm.piq.adj <- lm(piq ~ sex2 + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)
+lm.piq.adj <- lm(piq ~ sex2 + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal, data=a.chem)
 lm.piq.adj.coef <- as.matrix(coef(lm.piq.adj))[,1]
 lm.piq.adj.lower <- confint(lm.piq.adj)[,1]
 lm.piq.adj.upper <- confint(lm.piq.adj)[,2]
 
 # FSIQ
 
-lm.fsiq.adj <- lm(fsiq ~ sex2 + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)
+lm.fsiq.adj <- lm(fsiq ~ sex2 + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal, data=a.chem)
 lm.fsiq.adj.coef <- as.matrix(coef(lm.fsiq.adj))[,1]
 lm.fsiq.adj.lower <- confint(lm.fsiq.adj)[,1]
 lm.fsiq.adj.upper <- confint(lm.fsiq.adj)[,2]
@@ -748,11 +837,11 @@ colnums <- temp <- viq.coef.lm <- viq.coef.upper.lm <- viq.coef.lower.lm <- rep(
 for(i in 1:33){
   colnums <- c(2:33, 38)
   temp[i] <- a.chem[colnums[i]]
-  viq.coef.lm[i] <- (summary(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)))$coefficients[2,1] # finding the coefficients
+  viq.coef.lm[i] <- (summary(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal, data=a.chem)))$coefficients[2,1] # finding the coefficients
                      
-  viq.coef.lower.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,1] # lower confidence interval
+  viq.coef.lower.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal, data=a.chem))[2,1] # lower confidence interval
                                   
-  viq.coef.upper.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,2] # upper
+  viq.coef.upper.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal, data=a.chem))[2,2] # upper
 }
 
 # making the viq dataset:
@@ -770,11 +859,11 @@ for(i in 1:33){
   colnums <- c(2:33, 38)
   temp[i] <- a.chem[colnums[i]]
                                      
-  piq.coef.lm[i] <- (summary(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)))$coefficients[2,1]
+  piq.coef.lm[i] <- (summary(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=a.chem)))$coefficients[2,1]
                      
-  piq.coef.lower.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,1]
+  piq.coef.lower.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=a.chem))[2,1]
                                   
-  piq.coef.upper.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,2]
+  piq.coef.upper.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=a.chem))[2,2]
 }
 
 # making the piq dataset:
@@ -792,11 +881,11 @@ for(i in 1:33){
   colnums <- c(2:33, 38)
   temp[i] <- a.chem[colnums[i]]
 
-  fsiq.coef.lm[i] <- (summary(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem)))$coefficients[2,1] 
+  fsiq.coef.lm[i] <- (summary(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=a.chem)))$coefficients[2,1] 
                      
-  fsiq.coef.lower.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,1] 
+  fsiq.coef.lower.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=a.chem))[2,1] 
                                   
-  fsiq.coef.upper.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=a.chem))[2,2]
+  fsiq.coef.upper.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=a.chem))[2,2]
 }
 
 # making the fsiq dataset:
@@ -836,11 +925,11 @@ colnums <- temp <- viq.coef.lm <- viq.coef.upper.lm <- viq.coef.lower.lm <- rep(
 for(i in 1:33){
   colnums <- c(2:33, 38)
   temp[i] <- only.male[colnums[i]] # telling it which columns to use for the regression
-  viq.coef.lm[i] <- (summary(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male)))$coefficients[2,1] # finding the coefficients
+  viq.coef.lm[i] <- (summary(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.male)))$coefficients[2,1] # finding the coefficients
                      
-  viq.coef.lower.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,1] # lower confidence interval
+  viq.coef.lower.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.male))[2,1] # lower confidence interval
                                   
-  viq.coef.upper.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,2] # upper
+  viq.coef.upper.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.male))[2,2] # upper
 }
 
 # making the viq dataset:
@@ -855,11 +944,11 @@ colnums <- temp <- piq.coef.lm <- piq.coef.upper.lm <- piq.coef.lower.lm <- rep(
 for(i in 1:33){
   colnums <- c(2:33, 38)
   temp[i] <- only.male[colnums[i]] # telling it which columns to use for the regression
-  piq.coef.lm[i] <- (summary(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male)))$coefficients[2,1] # finding the coefficients
+  piq.coef.lm[i] <- (summary(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.male)))$coefficients[2,1] # finding the coefficients
                      
-  piq.coef.lower.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,1] # lower confidence interval
+  piq.coef.lower.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.male))[2,1] # lower confidence interval
                                   
-  piq.coef.upper.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,2] # upper
+  piq.coef.upper.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.male))[2,2] # upper
 }
 
 # making the piq dataset:
@@ -874,11 +963,11 @@ colnums <- temp <- fsiq.coef.lm <- fsiq.coef.upper.lm <- fsiq.coef.lower.lm <- r
 for(i in 1:33){
   colnums <- c(2:33, 38)
   temp[i] <- only.male[colnums[i]] # telling it which columns to use for the regression
-  fsiq.coef.lm[i] <- (summary(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male)))$coefficients[2,1] # finding the coefficients
+  fsiq.coef.lm[i] <- (summary(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.male)))$coefficients[2,1] # finding the coefficients
                      
-  fsiq.coef.lower.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,1] # lower confidence interval
+  fsiq.coef.lower.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.male))[2,1] # lower confidence interval
                                   
-  fsiq.coef.upper.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.male))[2,2] # upper
+  fsiq.coef.upper.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.male))[2,2] # upper
 }
 
 # making the fsiq dataset:
@@ -918,11 +1007,11 @@ colnums <- temp <- viq.coef.lm <- viq.coef.upper.lm <- viq.coef.lower.lm <- rep(
 for(i in 1:33){
   colnums <- c(2:33, 38)
   temp[i] <- only.female[colnums[i]] # telling it which columns to use for the regression
-  viq.coef.lm[i] <- (summary(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female)))$coefficients[2,1] # finding the coefficients
+  viq.coef.lm[i] <- (summary(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.female)))$coefficients[2,1] # finding the coefficients
                      
-  viq.coef.lower.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,1] # lower confidence interval
+  viq.coef.lower.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.female))[2,1] # lower confidence interval
                                   
-  viq.coef.upper.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,2] # upper
+  viq.coef.upper.lm[i] <- confint(lm(viq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.female))[2,2] # upper
 }
 
 # making the viq dataset:
@@ -937,11 +1026,11 @@ colnums <- temp <- piq.coef.lm <- piq.coef.upper.lm <- piq.coef.lower.lm <- rep(
 for(i in 1:33){
   colnums <- c(2:33, 38)
   temp[i] <- only.female[colnums[i]] # telling it which columns to use for the regression
-  piq.coef.lm[i] <- (summary(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female)))$coefficients[2,1] # finding the coefficients
+  piq.coef.lm[i] <- (summary(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.female)))$coefficients[2,1] # finding the coefficients
                      
-  piq.coef.lower.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,1] # lower confidence interval
+  piq.coef.lower.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.female))[2,1] # lower confidence interval
                                   
-  piq.coef.upper.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,2] # upper
+  piq.coef.upper.lm[i] <- confint(lm(piq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.female))[2,2] # upper
 }
 
 # making the piq dataset:
@@ -956,11 +1045,11 @@ colnums <- temp <- fsiq.coef.lm <- fsiq.coef.upper.lm <- fsiq.coef.lower.lm <- r
 for(i in 1:33){
   colnums <- c(2:33, 38)
   temp[i] <- only.female[colnums[i]] # telling it which columns to use for the regression
-  fsiq.coef.lm[i] <- (summary(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female)))$coefficients[2,1] # finding the coefficients
+  fsiq.coef.lm[i] <- (summary(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.female)))$coefficients[2,1] # finding the coefficients
                      
-  fsiq.coef.lower.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,1] # lower confidence interval
+  fsiq.coef.lower.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal,  data=only.female))[2,1] # lower confidence interval
                                   
-  fsiq.coef.upper.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2, data=only.female))[2,2] # upper
+  fsiq.coef.upper.lm[i] <- confint(lm(fsiq~temp[[i]] + age.thirty + age.thirtyfive + race2 + edu.college + edu.undergrad + edu.grad + married2 + income.forty + income.eighty + income.hundred + parity.one + parity.two + parity.three.plus + smoker2 + alc2 + home.2 + home.3 + home.4 + city.van + city.tor + city.ham + city.king + city.hal, data=only.female))[2,2] # upper
 }
 
 # making the fsiq dataset:
@@ -977,6 +1066,7 @@ setwd("/home/ayonkman/Desktop/Cleaned Data")
 write.table(lm.chem.adj.female, file="Linear Regression of Chemicals Adjusted - Girls Feb 2021", sep=',', row.names=FALSE)
 
 ```
+
 ```{r}
 setwd("/home/ayonkman/Desktop/Cleaned Data/")  
 
